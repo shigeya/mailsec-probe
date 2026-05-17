@@ -66,10 +66,10 @@ mailsec-probe -o json google.com cloudflare.com github.com > scan.json
 
 | Feature   | DNS record                              | Notes                                                       |
 |-----------|------------------------------------------|-------------------------------------------------------------|
-| SPF       | `TXT @ <domain>` starting with `v=spf1` | Detects `-all`/`~all`/`?all`/`+all`, includes, redirect     |
+| SPF       | `TXT @ <domain>` starting with `v=spf1` | Detects `-all`/`~all`/`?all`/`+all`, includes, redirect (`redirect=` without `all` is valid, RFC 7208 §6.1) |
 | DMARC     | `TXT @ _dmarc.<domain>`                  | `p=`, `sp=`, `pct=`, `rua=`, `ruf=`, `aspf=`, `adkim=`      |
-| DKIM      | `TXT @ <selector>._domainkey.<domain>`   | Probes a curated selector list (extend with `--dkim-selector`) |
-| MX        | `MX @ <domain>`                          | Hosts sorted by preference                                  |
+| DKIM      | `TXT @ <selector>._domainkey.<domain>`   | Probes a curated selector list; honours `v=DKIM1; p=` revocations and revoked-wildcard patterns (see [docs/DKIM_SELECTORS.md](docs/DKIM_SELECTORS.md)) |
+| MX        | `MX @ <domain>`                          | Hosts sorted by preference; `MX 0 .` (RFC 7505 null MX) is reported as absent with the explicit reason |
 | MTA-STS   | `TXT @ _mta-sts.<domain>` + HTTPS policy | Two-stage check; mode=enforce / testing / none              |
 | TLS-RPT   | `TXT @ _smtp._tls.<domain>`              | Reports `rua=` endpoint                                     |
 | BIMI      | `TXT @ default._bimi.<domain>`           | Reads `l=` (logo) and `a=` (VMC URI); does NOT validate VMC |
@@ -87,7 +87,11 @@ Each feature returns a `Status` and a `Confidence` in `[0, 1]`:
 DKIM is the only feature where `absent` is heuristic: we can only
 report "no key found at any of the N selectors we tried." Extend the
 list with `--dkim-selector <name>` if you know the domain uses
-something unusual.
+something unusual. The DKIM probe also distinguishes RFC 6376
+revocation (`v=DKIM1; p=`) from a live key, and recognises the
+revoked-wildcard pattern used by e.g. `example.com`. See
+[docs/DKIM_SELECTORS.md](docs/DKIM_SELECTORS.md) for the full
+strategy and current limitations.
 
 ## DKIM selector strategy
 
@@ -138,8 +142,12 @@ The YAML format mirrors `rules/dkim_selectors.yaml`.
 
 ## Design
 
-See [DESIGN.md](DESIGN.md) for the full architecture and Phase roadmap,
-and [CLAUDE.md](CLAUDE.md) for the developer guide.
+- [DESIGN.md](DESIGN.md) — product spec and phase roadmap
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — internal layering, type
+  contracts, and how to add a new probe
+- [docs/DKIM_SELECTORS.md](docs/DKIM_SELECTORS.md) — DKIM strategy
+  rationale and limits
+- [CLAUDE.md](CLAUDE.md) — developer guide
 
 The high-level layering is:
 
