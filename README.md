@@ -74,6 +74,8 @@ mailsec-probe -o json google.com cloudflare.com github.com > scan.json
 | TLS-RPT   | `TXT @ _smtp._tls.<domain>`              | Reports `rua=` endpoint                                     |
 | BIMI      | `TXT @ default._bimi.<domain>`           | Reads `l=` (logo) and `a=` (VMC URI); does NOT validate VMC |
 | DNSSEC    | AD bit + DS in parent                    | No on-the-wire DNSKEY validation (Phase 1 design choice)    |
+| STARTTLS  | `EHLO` + STARTTLS + TLS handshake on each MX:25 | **Active**: opt-in via `--active`. Records TLS version, leaf cert subject/issuer/SANs/expiry, PKIX validity |
+| DANE      | `TLSA @ _25._tcp.<mx>` matched against observed cert | **Active**: usage/selector/matching parsed; SHA-256 / SHA-512 of full-cert or SPKI checked against the cert returned during STARTTLS |
 
 ## How confidence works
 
@@ -120,11 +122,52 @@ The YAML format mirrors `rules/dkim_selectors.yaml`.
     --dkim-selectors-file string    override embedded DKIM selector list
     --no-spf-inference              disable SPF-driven DKIM selector inference
     --no-rua-check                  disable DMARC rua= HTTPS reachability HEAD checks
+    --active                        enable active SMTP probes (STARTTLS + DANE) on each MX:25
+    --smtp-port int                 SMTP port for --active probes (default 25)
+    --smtp-timeout duration         per-MX SMTP probe timeout (default 10s)
+    --ehlo-name string              EHLO name used during --active probes (default "mailsec-probe.local")
     --timeout duration              per-domain observation timeout  (default 10s)
     --concurrency int               max parallel domains  (default 8)
     --include-raw                   include raw TXT/HTTPS bodies in output
 -v, --verbose count                 -v info, -vv debug
 ```
+
+## Active mode (`--active`)
+
+By default `mailsec-probe` only reads DNS and a single HTTPS file
+(MTA-STS). With `--active` it additionally opens TCP connections to
+each MX host on port 25 and talks SMTP up to and including the TLS
+handshake:
+
+```console
+$ mailsec-probe --active nlnetlabs.nl
+nlnetlabs.nl
+├─ SPF        PRESENT       conf=0.95   qualifier=softfail, 2 includes
+├─ DMARC      PRESENT       conf=0.95   p=none, rua
+├─ DKIM       PRESENT       conf=0.95   default, google (rsa 1024-bit)
+├─ MX         PRESENT       conf=1.00   10 mxext1.mailbox.org, 10 mxext2.mailbox.org, +1 more
+├─ STARTTLS   PRESENT       conf=0.90   3/3 MX STARTTLS, 3/3 PKIX-valid (TLS 1.3)
+├─ DANE       PRESENT       conf=0.95   3/3 MX have TLSA, 3/3 validate
+├─ MTA-STS    ABSENT        conf=0.90   no _mta-sts TXT and no HTTPS policy
+├─ TLS-RPT    ABSENT        conf=0.90   no v=TLSRPTv1 TXT at _smtp._tls.nlnetlabs.nl
+├─ BIMI       ABSENT        conf=0.85   no v=BIMI1 TXT at default._bimi.nlnetlabs.nl
+└─ DNSSEC     PRESENT       conf=1.00   DS + AD
+```
+
+The active probe:
+
+- never sends mail
+- identifies itself in the EHLO greeting (default `mailsec-probe.local`,
+  override with `--ehlo-name`)
+- uses a tight per-MX timeout (10 s default)
+- only ever connects once per MX, even when multiple A records exist
+- reports cert chain summary (subject, issuer, SANs, NotAfter, PKIX validity)
+- compares each TLSA record at `_25._tcp.<mx>` against the live cert
+  using SHA-256 / SHA-512 over the full certificate or the SPKI
+
+Active mode requires outbound TCP :25 to work. Many residential
+networks and CI runners block it; in those environments STARTTLS will
+come back as `UNKNOWN` and DANE will be `ABSENT` (no TLSA observable).
 
 ## Exit codes
 
@@ -174,7 +217,17 @@ the upstream operators rotating records.
 
 ## Phase
 
-Currently **Phase 1.5**. Phase 1.5 adds:
+Currently **Phase 2.0**. Phase 2.0 adds the `--active` SMTP probe set:
+
+- **STARTTLS** — connect to each MX on :25, EHLO, STARTTLS, observe
+  TLS version and certificate chain
+- **DANE / TLSA** — look up TLSA at `_25._tcp.<mx>` and match against
+  the cert presented during STARTTLS (Usage/Selector/MatchingType
+  combinations 0/0, 1/1, 1/2)
+
+See the [Active mode](#active-mode---active) section above for usage.
+
+Phase 1.5 adds:
 
 - **SPF → DKIM selector inference** (`--no-spf-inference` to disable):
   when SPF includes a recognised provider (Google Workspace, Microsoft
@@ -190,10 +243,12 @@ Currently **Phase 1.5**. Phase 1.5 adds:
 
 Out of scope:
 
-- SMTP / STARTTLS / DANE-TLSA validation (Phase 2 `--active`)
 - On-the-wire DNSKEY/DS chain validation
 - Batch input (`--input domains.txt`) and TSV output (Phase 2.5)
 - BIMI VMC (Verified Mark Certificate) validation
+- TLSA Usage 0/2 (trust-anchor) semantics — Phase 2.0 validates Usage 3
+  (DANE-EE) precisely; trust-anchor records are observed but treated
+  the same as DANE-EE for the matching check
 
 ## License
 

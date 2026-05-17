@@ -21,6 +21,7 @@ import (
 	"github.com/shigeya/mailsec-probe/internal/probe/dnsclient"
 	"github.com/shigeya/mailsec-probe/internal/probe/dnssec"
 	"github.com/shigeya/mailsec-probe/internal/probe/mtasts"
+	"github.com/shigeya/mailsec-probe/internal/probe/mtatls"
 	"github.com/shigeya/mailsec-probe/internal/probe/mx"
 	"github.com/shigeya/mailsec-probe/internal/probe/spf"
 	"github.com/shigeya/mailsec-probe/internal/probe/tlsrpt"
@@ -62,16 +63,20 @@ type exitCodeErr struct{ code int }
 func (e *exitCodeErr) Error() string { return fmt.Sprintf("exit %d", e.code) }
 
 type rootOpts struct {
-	outputFmt       string
-	dnsServer       string
-	dkimSelectors   []string
-	dkimSelFile     string
-	noSPFInference  bool
-	noRUACheck      bool
-	timeout         time.Duration
-	concurrency     int
-	includeRaw      bool
-	verbose         int
+	outputFmt      string
+	dnsServer      string
+	dkimSelectors  []string
+	dkimSelFile    string
+	noSPFInference bool
+	noRUACheck     bool
+	active         bool
+	smtpPort       int
+	smtpTimeout    time.Duration
+	ehloName       string
+	timeout        time.Duration
+	concurrency    int
+	includeRaw     bool
+	verbose        int
 }
 
 func newRoot() *cobra.Command {
@@ -79,6 +84,9 @@ func newRoot() *cobra.Command {
 		outputFmt:   "human",
 		timeout:     10 * time.Second,
 		concurrency: 8,
+		smtpPort:    25,
+		smtpTimeout: 10 * time.Second,
+		ehloName:    "mailsec-probe.local",
 	}
 
 	cmd := &cobra.Command{
@@ -101,6 +109,10 @@ func newRoot() *cobra.Command {
 	pf.StringVar(&opts.dkimSelFile, "dkim-selectors-file", "", "override the embedded DKIM selector list with this YAML file")
 	pf.BoolVar(&opts.noSPFInference, "no-spf-inference", false, "disable SPF-driven DKIM selector inference")
 	pf.BoolVar(&opts.noRUACheck, "no-rua-check", false, "disable DMARC rua= HTTPS reachability HEAD checks")
+	pf.BoolVar(&opts.active, "active", false, "enable active SMTP probes (STARTTLS + DANE). Connects to each MX on TCP 25")
+	pf.IntVar(&opts.smtpPort, "smtp-port", opts.smtpPort, "SMTP port for --active probes")
+	pf.DurationVar(&opts.smtpTimeout, "smtp-timeout", opts.smtpTimeout, "per-MX SMTP probe timeout")
+	pf.StringVar(&opts.ehloName, "ehlo-name", opts.ehloName, "name used in our EHLO greeting during --active probes")
 	pf.DurationVar(&opts.timeout, "timeout", opts.timeout, "per-domain observation timeout")
 	pf.IntVar(&opts.concurrency, "concurrency", opts.concurrency, "max parallel domains")
 	pf.BoolVar(&opts.includeRaw, "include-raw", false, "include raw TXT/HTTPS bodies in the output")
@@ -225,7 +237,7 @@ func buildProbes(dnsCli dnsclient.Client, opts *rootOpts) ([]classifier.Probe, e
 		dmarcProbe.EnableRUACheck = false
 	}
 
-	return []classifier.Probe{
+	probes := []classifier.Probe{
 		spf.New(dnsCli, opts.includeRaw),
 		dmarcProbe,
 		dkimProbe,
@@ -234,7 +246,17 @@ func buildProbes(dnsCli dnsclient.Client, opts *rootOpts) ([]classifier.Probe, e
 		tlsrpt.New(dnsCli, opts.includeRaw),
 		bimi.New(dnsCli, opts.includeRaw),
 		dnssec.New(dnsCli),
-	}, nil
+	}
+
+	if opts.active {
+		mtatlsProbe := mtatls.New(dnsCli)
+		mtatlsProbe.Port = opts.smtpPort
+		mtatlsProbe.OurName = opts.ehloName
+		mtatlsProbe.Dialer = mtatls.NewDialer(opts.smtpTimeout)
+		probes = append(probes, mtatlsProbe)
+	}
+
+	return probes, nil
 }
 
 // mergedAsExtras is a tiny adapter: dkim.New treats its second arg as

@@ -42,10 +42,27 @@ type MX struct {
 	Preference uint16
 }
 
+// TLSAResult is the result of a TLSA lookup.
+type TLSAResult struct {
+	Records []TLSARecord
+	AD      bool
+	RCode   int
+}
+
+// TLSARecord is a single TLSA RR (RFC 6698). Data is the binary
+// certificate-association payload (not hex-encoded).
+type TLSARecord struct {
+	Usage        uint8 // 0=PKIX-TA, 1=PKIX-EE, 2=DANE-TA, 3=DANE-EE
+	Selector     uint8 // 0=Cert, 1=SPKI
+	MatchingType uint8 // 0=Full, 1=SHA-256, 2=SHA-512
+	Data         []byte
+}
+
 // Client is the minimal DNS surface used by probes.
 type Client interface {
 	LookupTXT(ctx context.Context, name string) (TXTResult, error)
 	LookupMX(ctx context.Context, name string) (MXResult, error)
+	LookupTLSA(ctx context.Context, name string) (TLSAResult, error)
 	HasDS(ctx context.Context, name string) (bool, error)
 }
 
@@ -129,6 +146,32 @@ func (c *client) LookupMX(ctx context.Context, name string) (MXResult, error) {
 	return out, nil
 }
 
+func (c *client) LookupTLSA(ctx context.Context, name string) (TLSAResult, error) {
+	msg, err := c.exchange(ctx, name, dns.TypeTLSA)
+	if err != nil {
+		return TLSAResult{}, err
+	}
+	out := TLSAResult{
+		AD:    msg.AuthenticatedData,
+		RCode: msg.Rcode,
+	}
+	for _, rr := range msg.Answer {
+		if t, ok := rr.(*dns.TLSA); ok {
+			data, herr := hexDecode(t.Certificate)
+			if herr != nil {
+				continue
+			}
+			out.Records = append(out.Records, TLSARecord{
+				Usage:        t.Usage,
+				Selector:     t.Selector,
+				MatchingType: t.MatchingType,
+				Data:         data,
+			})
+		}
+	}
+	return out, nil
+}
+
 func (c *client) HasDS(ctx context.Context, name string) (bool, error) {
 	msg, err := c.exchange(ctx, name, dns.TypeDS)
 	if err != nil {
@@ -185,4 +228,43 @@ func ensurePort(s string) string {
 		return s
 	}
 	return net.JoinHostPort(s, "53")
+}
+
+// hexDecode converts the lower- or upper-case hex string the TLSA RR
+// type carries in its Certificate field to bytes. Whitespace is
+// tolerated. Returns an error on any non-hex character.
+func hexDecode(s string) ([]byte, error) {
+	clean := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			continue
+		}
+		clean = append(clean, c)
+	}
+	if len(clean)%2 != 0 {
+		return nil, fmt.Errorf("hex string has odd length")
+	}
+	out := make([]byte, len(clean)/2)
+	for i := 0; i < len(clean); i += 2 {
+		hi, ok1 := hexNibble(clean[i])
+		lo, ok2 := hexNibble(clean[i+1])
+		if !ok1 || !ok2 {
+			return nil, fmt.Errorf("invalid hex character at %d", i)
+		}
+		out[i/2] = hi<<4 | lo
+	}
+	return out, nil
+}
+
+func hexNibble(c byte) (byte, bool) {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0', true
+	case c >= 'a' && c <= 'f':
+		return c - 'a' + 10, true
+	case c >= 'A' && c <= 'F':
+		return c - 'A' + 10, true
+	}
+	return 0, false
 }

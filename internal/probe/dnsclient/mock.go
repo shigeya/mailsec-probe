@@ -11,25 +11,29 @@ import (
 // The map key for TXT/MX is the lower-cased FQDN without a trailing dot,
 // e.g. "example.com", "_dmarc.example.com", "google._domainkey.example.com".
 type Mock struct {
-	TXT map[string]TXTResult
-	MX  map[string]MXResult
-	DS  map[string]bool
+	TXT  map[string]TXTResult
+	MX   map[string]MXResult
+	TLSA map[string]TLSAResult
+	DS   map[string]bool
 
-	// TXTErr / MXErr / DSErr let a test simulate transport-level failures.
-	TXTErr map[string]error
-	MXErr  map[string]error
-	DSErr  map[string]error
+	// TXTErr / MXErr / TLSAErr / DSErr let a test simulate transport-level failures.
+	TXTErr  map[string]error
+	MXErr   map[string]error
+	TLSAErr map[string]error
+	DSErr   map[string]error
 }
 
 // NewMock returns a Mock with all maps initialized.
 func NewMock() *Mock {
 	return &Mock{
-		TXT:    map[string]TXTResult{},
-		MX:     map[string]MXResult{},
-		DS:     map[string]bool{},
-		TXTErr: map[string]error{},
-		MXErr:  map[string]error{},
-		DSErr:  map[string]error{},
+		TXT:     map[string]TXTResult{},
+		MX:      map[string]MXResult{},
+		TLSA:    map[string]TLSAResult{},
+		DS:      map[string]bool{},
+		TXTErr:  map[string]error{},
+		MXErr:   map[string]error{},
+		TLSAErr: map[string]error{},
+		DSErr:   map[string]error{},
 	}
 }
 
@@ -58,6 +62,17 @@ func (m *Mock) LookupMX(_ context.Context, name string) (MXResult, error) {
 		return r, nil
 	}
 	return MXResult{RCode: 3}, nil
+}
+
+func (m *Mock) LookupTLSA(_ context.Context, name string) (TLSAResult, error) {
+	k := m.key(name)
+	if err, ok := m.TLSAErr[k]; ok {
+		return TLSAResult{}, err
+	}
+	if r, ok := m.TLSA[k]; ok {
+		return r, nil
+	}
+	return TLSAResult{RCode: 3}, nil
 }
 
 func (m *Mock) HasDS(_ context.Context, name string) (bool, error) {
