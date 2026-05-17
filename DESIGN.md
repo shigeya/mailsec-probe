@@ -301,7 +301,8 @@ example.jp
 | **1.5** | ✅ 実装済み | SPF → DKIM selector 推定 (`--no-spf-inference` で無効化)、DMARC `rua=` の HTTPS HEAD 到達性 (`--no-rua-check`)、MTA-STS policy の `mx:` パターンと実 MX の一致性 |
 | **2.0** | ✅ 実装済み | `--active`: SMTP STARTTLS / 証明書観察 / PKIX 検証 / DANE/TLSA 照合 (Usage 3 = DANE-EE は厳密、Usage 0/2 は観察のみ) |
 | **2.5** | ✅ 実装済み | `--input <file>` バッチ (`-` で stdin)、`--output tsv`、`--stats` 横断統計、ANSI カラー出力 (`--color auto\|always\|never`) |
-| **3.x** | 候補 | 下記 §16 参照 |
+| **3.0** | 🛠 計画中 | DNSSEC chain validation を `github.com/shigeya/dnsdata` (別 module で co-develop) 経由で導入。Phase 1.0 の AD ビット観測モードは `--dnssec-mode ad-only` として残す。詳細は §16 |
+| **3.x** | 候補 | 下記 §17 参照 |
 
 ### Phase 1.5 で見つけた事実
 
@@ -322,17 +323,160 @@ example.jp
 | 1 | ツール名 / バイナリ名 | `mailsec-probe` |
 | 2 | モジュールパス | `github.com/shigeya/mailsec-probe` |
 | 3 | DKIM selector 戦略 | 固定集合 + SPF inference (Phase 1.5 実装済み) |
-| 4 | DNSSEC | AD ビット + DS で十分。DNSKEY 自前検証は採用せず |
+| 4 | DNSSEC | Phase 1.0–2.5 は AD ビット + DS のみ。Phase 3.0 で `dnsdata` 経由の chain validation を導入し、BOGUS / INSECURE を区別 |
 | 5 | 入力単位 | ドメインのみ。`user@domain` は受け付けない |
 | 6 | BIMI 深さ | TXT パースまで。VMC 検証は Phase 3 候補 |
 | 7 | 出力 | human / json / tsv の 3 形式。`--stats` で各形式に集計付加 |
 | 8 | 倫理 | 非侵襲がデフォルト。SMTP は `--active` 必須、EHLO で自己同定、メール送信なし |
 | 9 | Probe interface | `Run` は `[]signals.Feature` 返却 (mtatls が STARTTLS + DANE の 2 feature を 1 接続で出すため) |
 
-## 16. Phase 3 以降の候補 (未着手)
+## 16. Phase 3.0 計画 — DNSSEC validation via dnsdata
+
+### 背景
+
+Phase 1.0 の DNSSEC probe は **AD ビット + DS の有無のみ** を観測しており、
+署名失敗 (BOGUS) を検出できない。実用上、misconfigured な DNSSEC ゾーンを
+SECURE と区別できないのは観測ツールとして弱い。
+
+Phase 3.0 では DNSSEC chain validation を **`dnsdata` に委譲** する形で導入する。
+
+### 依存先
+
+`github.com/shigeya/dnsdata` — 別 module として開発する Go DNS / DNSSEC library。
+TypeScript の `dnsjs` (wide-cpp-lib 由来) を Go に純血ポートしたもの。
+mailsec-probe と co-develop する (両 repo を同一作者が所有)。
+
+```
+mailsec-probe (this repo)
+    └─ depends on → github.com/shigeya/dnsdata/verifier  (DNSSEC chain validator)
+                  → github.com/shigeya/dnsdata/dnssec    (DNSKEY/RRSIG/DS primitives)
+                  → github.com/shigeya/dnsdata/resolver  (DoH / authoritative DNS)
+```
+
+### 検証範囲
+
+- root trust anchor (KSK-2017 + KSK-2024 を埋め込み) からの **chain of trust 検証**
+- 結果は `Secure | Insecure | Bogus | Indeterminate` の 4 値
+- insecure delegation (chain の途中で DS が無くなる) を BOGUS と区別
+
+### dnsdata に対する Requirements
+
+mailsec-probe (= consumer) が dnsdata に求める API 契約。
+`dnsdata` 側 DESIGN.md / Issue にも転記し、co-design の北極星にする。
+
+#### MUST
+
+1. `Validate(ctx, qname, qtype) → (*Result, error)` がゴルーチン安全
+2. `Result.Verdict` は `Secure | Insecure | Bogus | Indeterminate` の enum
+3. `Result.Chain` に各 zone の DNSKEY/DS タグ・アルゴリズム・RRSIG 検証結果
+4. `Result.InsecureAt` / `Result.BogusAt` で問題発生点を string で返す
+5. `Result.Evidence` に取得した DS/DNSKEY/RRSIG の生情報 (mailsec-probe の Signal に流す)
+6. `context.Context` で cancel / deadline を伝播
+7. trust anchor のソースを caller が指定可能 (`WithTrustAnchors(io.Reader)` 等)
+8. DoH provider をスライスで渡せる (Google / Cloudflare / Quad9 を順次フェイルオーバ)
+9. 権威 NS への直接問い合わせモードを持つ (mailsec-probe の `--dns-server` 連携)
+10. `Result` が `encoding/json` でそのままマーシャル可能
+11. `Verdict.String()` が `"secure"` / `"insecure"` / `"bogus"` / `"indeterminate"`
+12. エラーは `errors.Is` 可能な sentinel (`ErrNoDS`, `ErrSigExpired`, `ErrUnsupportedAlgo`, `ErrChainTimeout`, ...)
+
+#### SHOULD
+
+13. キャッシュ層を差し込み可能 (`WithCache(c Cache)`)。バッチ実行で root/TLD DNSKEY を再利用
+14. 検証ステップを stream で吐ける (`WithStepHandler(func(StepEvent))`)。verbose ログ用
+15. RR type は `uint16` で受ける (miekg/dns 互換)
+16. 100 ドメイン並列でも許容範囲のメモリ効率
+
+#### MAY (将来)
+
+17. `miekg/dns.RR` への変換 helper (エコシステム相互運用)
+18. NSEC/NSEC3 を使った aggressive negative caching (RFC 8198)
+19. RFC 5011 ベースの trust anchor 自動更新
+
+#### MUST NOT
+
+20. `os.Exit` を呼ばない
+21. `init()` で副作用を出さない (logger 取得等)
+22. グローバル状態を持たない (複数 Verifier を独立に使える)
+23. デフォルトでファイルシステム書き込みをしない (明示指定時のみ `~/.dnsdata/` 等を触る)
+24. stdout / stderr に何も書かない (caller が好きな logger に流す)
+
+### 新 dnssec probe の API モック (mailsec-probe 側)
+
+```go
+// internal/probe/dnssec/dnssec.go (Phase 3.0 後の想定)
+package dnssec
+
+import (
+    "context"
+
+    "github.com/miekg/dns"
+    "github.com/shigeya/dnsdata/verifier"
+    "github.com/shigeya/mailsec-probe/internal/signals"
+)
+
+type Probe struct {
+    V *verifier.Verifier
+}
+
+func New(v *verifier.Verifier) *Probe { return &Probe{V: v} }
+
+func (*Probe) Name() string { return "dnssec" }
+
+func (p *Probe) Run(ctx context.Context, domain string) []signals.Feature {
+    r, err := p.V.Validate(ctx, domain+".", dns.TypeTXT)
+    if err != nil {
+        // StatusUnknown + Reasons に err.Error()
+    }
+    switch r.Verdict {
+    case verifier.Secure:
+        // StatusPresent, confidence 0.95
+        // Reasons: "DNSSEC chain validated from root"
+    case verifier.Insecure:
+        // StatusAbsent, confidence 0.9
+        // Reasons: "insecure delegation at <r.InsecureAt>"
+    case verifier.Bogus:
+        // StatusMisconfigured, confidence 0.95
+        // Reasons: "BOGUS at <r.BogusAt>: <r.BogusReason>"
+    case verifier.Indeterminate:
+        // StatusUnknown
+    }
+    // r.Evidence を Signal[] に変換
+    // r.Chain を Details に格納
+}
+```
+
+### `signals.Status` の拡張
+
+Phase 3.0 で **`StatusMisconfigured`** を `internal/signals/signals.go` に追加する。
+DNSSEC BOGUS 以外にも将来 MTA-STS の policy / MX 不一致や DKIM 鍵長不足等で再利用可能。
+
+### CLI への影響
+
+- 新フラグ `--dnssec-mode {ad-only,validate}` (デフォルト `validate`)
+  - `ad-only` で Phase 1.0 互換挙動 (AD ビット + DS のみ)
+  - `validate` で dnsdata 経由の chain validation
+- 新フラグ `--dnssec-doh-providers google,cloudflare,quad9` (デフォルト 3 つ順次)
+- 既存 `--dns-server` 指定時は、dnsdata の権威 NS 直接問い合わせモードへ自動切替
+
+### golden test への影響
+
+`testdata/domains/<name>/golden.json` の `dnssec` Feature 部が変わるため再生成が必要。
+dnsdata 側で対応する `testdata/` (chain 検証済みの DNS 応答 fixture) を整備し、
+mailsec-probe 側も Mock DNS / Mock DoH で同じ fixture を共有する方針とする。
+
+### スケジュール想定
+
+| 週 | dnsdata 側 | mailsec-probe 側 |
+|---|---|---|
+| Week 1 | repo 初期化、`types/`, `wire/`, `zone/` の最小構成、テスト | (なし) |
+| Week 2 | `dnssec/` 全部 (DNSKEY/RRSIG/DS/NSEC/anchors)、`resolver/doh/` | (なし) |
+| Week 3 | `verifier/chain.go` (chain walker)、`v0.1.0` タグ | `--dnssec-mode validate` 実装、`internal/probe/dnssec/` 差し替え、golden 再生成 |
+
+進捗共有とセッション分担は `dnsdata` 側 repo の CLAUDE.md / DESIGN.md を参照。
+
+## 17. Phase 3.x 以降の候補 (未着手)
 
 - **BIMI VMC 検証** — `a=` の URI から VMC を取得し、x509 として鍵を抽出、BIMI Indicator の認証チェーンを検証
-- **DNSKEY/DS の自前検証** — 信頼できる解決器に依存せず DNSSEC chain of trust を自己検証 (resolver 不信モード)
 - **STARTTLS の暗号スイート評価** — 弱い cipher / TLS 1.0/1.1 許容を `misconfigured` に格下げ
 - **MTA-STS report consumer 視点のテスト** — TLS-RPT で実際にレポートを受け取るエンドポイントを提供
 - **DKIM 鍵の脆弱性チェック** — 1024-bit RSA や exponent=3 を `misconfigured` 寄りに
