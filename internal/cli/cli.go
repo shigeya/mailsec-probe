@@ -66,6 +66,8 @@ type rootOpts struct {
 	dnsServer       string
 	dkimSelectors   []string
 	dkimSelFile     string
+	noSPFInference  bool
+	noRUACheck      bool
 	timeout         time.Duration
 	concurrency     int
 	includeRaw      bool
@@ -97,6 +99,8 @@ func newRoot() *cobra.Command {
 	pf.StringVar(&opts.dnsServer, "dns-server", "", "DNS server to query (host or host:port). Default: system resolver")
 	pf.StringSliceVar(&opts.dkimSelectors, "dkim-selector", nil, "additional DKIM selector to probe (repeatable)")
 	pf.StringVar(&opts.dkimSelFile, "dkim-selectors-file", "", "override the embedded DKIM selector list with this YAML file")
+	pf.BoolVar(&opts.noSPFInference, "no-spf-inference", false, "disable SPF-driven DKIM selector inference")
+	pf.BoolVar(&opts.noRUACheck, "no-rua-check", false, "disable DMARC rua= HTTPS reachability HEAD checks")
 	pf.DurationVar(&opts.timeout, "timeout", opts.timeout, "per-domain observation timeout")
 	pf.IntVar(&opts.concurrency, "concurrency", opts.concurrency, "max parallel domains")
 	pf.BoolVar(&opts.includeRaw, "include-raw", false, "include raw TXT/HTTPS bodies in the output")
@@ -211,11 +215,19 @@ func buildProbes(dnsCli dnsclient.Client, opts *rootOpts) ([]classifier.Probe, e
 		// dkim.New re-loaded the embedded set; rewrite Selectors with the
 		// user-controlled merged list so --dkim-selectors-file actually wins.
 		dkimProbe.Selectors = dedupe(merged)
+		if opts.noSPFInference {
+			dkimProbe.EnableInference = false
+		}
+	}
+
+	dmarcProbe := dmarc.New(dnsCli, opts.includeRaw)
+	if opts.noRUACheck {
+		dmarcProbe.EnableRUACheck = false
 	}
 
 	return []classifier.Probe{
 		spf.New(dnsCli, opts.includeRaw),
-		dmarc.New(dnsCli, opts.includeRaw),
+		dmarcProbe,
 		dkimProbe,
 		mx.New(dnsCli),
 		mtasts.New(dnsCli, opts.includeRaw),

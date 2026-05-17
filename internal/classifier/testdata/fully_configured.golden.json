@@ -29,7 +29,14 @@
       "details": {
         "policy": "reject",
         "percent": "100",
-        "aggregate_reports": "mailto:dmarc@example.test"
+        "aggregate_reports": "mailto:dmarc@example.test",
+        "rua_endpoints": [
+          {
+            "uri": "mailto:dmarc@example.test",
+            "scheme": "mailto",
+            "checked": false
+          }
+        ]
       }
     },
     {
@@ -97,6 +104,18 @@
             "mx2.example.test"
           ],
           "max_age": "604800"
+        },
+        "mx_match": {
+          "checked": true,
+          "all_matched": true,
+          "hosts": [
+            "mx1.example.test",
+            "mx2.example.test"
+          ],
+          "policy_patterns": [
+            "mx1.example.test",
+            "mx2.example.test"
+          ]
         }
       }
     },

@@ -34,6 +34,10 @@ func (s stubHTTP) Get(_ context.Context, _ string) (int, string, error) {
 	return s.status, s.body, nil
 }
 
+func (s stubHTTP) Head(_ context.Context, _ string) (int, error) {
+	return s.status, nil
+}
+
 // fullyConfigured wires every probe against a Mock DNS that simulates a
 // domain with all eight features in place.
 func TestRunner_FullyConfiguredGolden(t *testing.T) {
@@ -101,7 +105,7 @@ func TestRunner_FullyConfiguredGolden(t *testing.T) {
 
 	runner := classifier.New(
 		spf.New(m, false),
-		dmarc.New(m, false),
+		func() *dmarc.Probe { p := dmarc.New(m, false); p.EnableRUACheck = false; return p }(),
 		dkimProbe,
 		mx.New(m),
 		mtaProbe,

@@ -11,35 +11,30 @@ package mtasts
 import (
 	"bufio"
 	"context"
-	"crypto/tls"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/shigeya/mailsec-probe/internal/probe/dnsclient"
+	"github.com/shigeya/mailsec-probe/internal/probe/httpfetcher"
 	"github.com/shigeya/mailsec-probe/internal/probe/txttag"
 	"github.com/shigeya/mailsec-probe/internal/signals"
 )
 
 const (
 	name        = "mta-sts"
-	defaultUA   = "mailsec-probe/0.1 (+https://github.com/shigeya/mailsec-probe)"
 	defaultPath = "/.well-known/mta-sts.txt"
 )
 
-// HTTPFetcher is the minimal HTTPS surface mtasts needs.
-// Tests substitute a stub; production uses http.Client.
-type HTTPFetcher interface {
-	Get(ctx context.Context, url string) (status int, body string, err error)
-}
+// HTTPFetcher is a local alias for httpfetcher.Fetcher to preserve
+// MTA-STS test imports.
+type HTTPFetcher = httpfetcher.Fetcher
 
 // Probe observes MTA-STS.
 type Probe struct {
 	DNS        dnsclient.Client
 	HTTP       HTTPFetcher
-	UserAgent  string
 	IncludeRaw bool
 }
 
@@ -47,8 +42,7 @@ type Probe struct {
 func New(d dnsclient.Client, includeRaw bool) *Probe {
 	return &Probe{
 		DNS:        d,
-		HTTP:       NewHTTPFetcher(8*time.Second, defaultUA),
-		UserAgent:  defaultUA,
+		HTTP:       httpfetcher.New(8*time.Second, ""),
 		IncludeRaw: includeRaw,
 	}
 }
@@ -71,8 +65,19 @@ type Details struct {
 		ID  string `json:"id,omitempty"`
 		Raw string `json:"raw,omitempty"`
 	} `json:"dns_record"`
-	HTTPStatus int    `json:"http_status,omitempty"`
-	Policy     Policy `json:"policy,omitempty"`
+	HTTPStatus int       `json:"http_status,omitempty"`
+	Policy     Policy    `json:"policy,omitempty"`
+	MXMatch    *MXMatch  `json:"mx_match,omitempty"`
+}
+
+// MXMatch summarises the per-host comparison of real MX records
+// against the patterns advertised in the MTA-STS policy.
+type MXMatch struct {
+	Checked       bool     `json:"checked"`
+	AllMatched    bool     `json:"all_matched"`
+	Hosts         []string `json:"hosts,omitempty"`
+	Unmatched     []string `json:"unmatched,omitempty"`
+	PolicyPatterns []string `json:"policy_patterns,omitempty"`
 }
 
 // Summary returns a short human description (used by the human formatter).
@@ -154,7 +159,26 @@ func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
 		d.HTTPStatus = status
 	}
 
-	// 3. Decide overall status.
+	// 3. If we have both halves, do the MX-vs-policy consistency check.
+	if dnsPresent && policyPresent && len(d.Policy.MX) > 0 {
+		mxRes, mxErr := p.DNS.LookupMX(ctx, domain)
+		mxSig := signals.Signal{Source: signals.SourceDNSMX, Target: domain, OK: mxErr == nil}
+		if mxErr != nil {
+			mxSig.Err = mxErr.Error()
+		}
+		sigs = append(sigs, mxSig)
+		if mxErr == nil && len(mxRes.Records) > 0 {
+			hosts := make([]string, 0, len(mxRes.Records))
+			for _, m := range mxRes.Records {
+				hosts = append(hosts, m.Host)
+			}
+			match := compareMXAgainstPolicy(hosts, d.Policy.MX)
+			match.Checked = true
+			d.MXMatch = &match
+		}
+	}
+
+	// 4. Decide overall status.
 	switch {
 	case dnsPresent && policyPresent:
 		mode := d.Policy.Mode
@@ -167,6 +191,12 @@ func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
 		if d.Policy.Mode == "none" {
 			st = signals.StatusMisconfigured
 			reasons = append(reasons, "policy mode=none (advertised but not enforced)")
+		}
+		if d.MXMatch != nil && d.MXMatch.Checked && !d.MXMatch.AllMatched {
+			st = signals.StatusMisconfigured
+			reasons = append(reasons,
+				fmt.Sprintf("MX host(s) not covered by policy patterns: %s",
+					strings.Join(d.MXMatch.Unmatched, ", ")))
 		}
 		return signals.Feature{
 			Name: name, Status: st, Confidence: conf,
@@ -191,6 +221,63 @@ func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
 			Details: d, Signals: sigs,
 		}
 	}
+}
+
+// compareMXAgainstPolicy reports whether every host in actualHosts is
+// covered by at least one pattern in policyPatterns.
+//
+// Per RFC 8461 §3.2 a pattern is a single MX hostname or a wildcard of
+// the form "*.example.com" which matches exactly one label below the
+// suffix. Case is ignored.
+func compareMXAgainstPolicy(actualHosts, policyPatterns []string) MXMatch {
+	m := MXMatch{
+		Hosts:          append([]string{}, actualHosts...),
+		PolicyPatterns: append([]string{}, policyPatterns...),
+	}
+	if len(actualHosts) == 0 {
+		m.AllMatched = true
+		return m
+	}
+	patterns := make([]string, 0, len(policyPatterns))
+	for _, p := range policyPatterns {
+		patterns = append(patterns, strings.TrimSuffix(strings.ToLower(p), "."))
+	}
+	m.AllMatched = true
+	for _, h := range actualHosts {
+		host := strings.TrimSuffix(strings.ToLower(h), ".")
+		if !matchAnyPattern(host, patterns) {
+			m.Unmatched = append(m.Unmatched, h)
+			m.AllMatched = false
+		}
+	}
+	return m
+}
+
+func matchAnyPattern(host string, patterns []string) bool {
+	for _, p := range patterns {
+		if matchPattern(host, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchPattern(host, pattern string) bool {
+	// Exact match
+	if host == pattern {
+		return true
+	}
+	// Wildcard "*.suffix" matches one label below suffix.
+	if !strings.HasPrefix(pattern, "*.") {
+		return false
+	}
+	suffix := pattern[2:]
+	if !strings.HasSuffix(host, "."+suffix) {
+		return false
+	}
+	prefix := host[:len(host)-len(suffix)-1]
+	// Exactly one label: must not contain a dot.
+	return prefix != "" && !strings.Contains(prefix, ".")
 }
 
 func parsePolicy(body string) Policy {
@@ -222,44 +309,10 @@ func parsePolicy(body string) Policy {
 	return p
 }
 
-// --- default HTTP fetcher ---
-
-// NewHTTPFetcher returns an HTTPFetcher that uses net/http.
+// NewHTTPFetcher is kept for backwards-compatible callers; new code
+// should call httpfetcher.New directly.
+//
+// Deprecated: use httpfetcher.New.
 func NewHTTPFetcher(timeout time.Duration, ua string) HTTPFetcher {
-	if ua == "" {
-		ua = defaultUA
-	}
-	return &httpFetcher{
-		client: &http.Client{
-			Timeout: timeout,
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
-			},
-		},
-		ua: ua,
-	}
-}
-
-type httpFetcher struct {
-	client *http.Client
-	ua     string
-}
-
-func (h *httpFetcher) Get(ctx context.Context, url string) (int, string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return 0, "", err
-	}
-	req.Header.Set("User-Agent", h.ua)
-	resp, err := h.client.Do(req)
-	if err != nil {
-		return 0, "", err
-	}
-	defer resp.Body.Close()
-	// Cap body to 64 KB to avoid pathological inputs.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-	if err != nil {
-		return resp.StatusCode, "", err
-	}
-	return resp.StatusCode, string(body), nil
+	return httpfetcher.New(timeout, ua)
 }

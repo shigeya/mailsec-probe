@@ -1,0 +1,96 @@
+# When the SPF record at the apex includes a recognised provider, we
+# probe the additional selectors below in addition to the default list.
+#
+# Format:
+#   rules:
+#     - match_include: <substring of an SPF include or redirect target>
+#       add_selectors: [sel1, sel2, ...]
+#
+# match_include is a case-insensitive substring match against tokens that
+# look like include:<x> or redirect=<x> in the SPF record. The match runs
+# against the bare host (no include: prefix), e.g. "_spf.google.com".
+
+rules:
+  # Google Workspace — Google rotates aggressively; date-style selectors
+  # have appeared roughly yearly. We keep recent ones; older revoked
+  # selectors still live in the default list for historical scans.
+  - match_include: _spf.google.com
+    add_selectors:
+      - google
+      - "20240617"
+      - "20230601"
+      - "20221208"
+      - "20210112"
+      - "20161025"
+
+  # Microsoft 365 / Outlook — selector names are tenant-specific
+  # (selector1-<tenantid>, selector2-<tenantid>). The generic
+  # -com suffixes catch the common cases.
+  - match_include: spf.protection.outlook.com
+    add_selectors:
+      - selector1
+      - selector2
+      - selector1-com
+      - selector2-com
+
+  # Amazon SES — per-region domain identities; common literal selectors
+  - match_include: amazonses.com
+    add_selectors:
+      - amazonses
+
+  # Mailgun
+  - match_include: mailgun.org
+    add_selectors:
+      - mg
+      - mta
+      - krs
+      - mailo
+
+  # SendGrid
+  - match_include: sendgrid.net
+    add_selectors:
+      - s1
+      - s2
+      - smtpapi
+
+  # Mandrill / Mailchimp
+  - match_include: spf.mandrillapp.com
+    add_selectors:
+      - mandrill
+      - k1
+      - k2
+      - k3
+
+  # Postmark
+  - match_include: spf.mtasv.net
+    add_selectors:
+      - "20210309165435pm"
+
+  # Fastmail
+  - match_include: spf.messagingengine.com
+    add_selectors:
+      - fm1
+      - fm2
+      - fm3
+
+  # ProtonMail
+  - match_include: _spf.protonmail.ch
+    add_selectors:
+      - protonmail
+      - protonmail2
+      - protonmail3
+
+  # Zoho
+  - match_include: zohomail.com
+    add_selectors:
+      - zoho
+      - zmail
+
+  # MailerSend / MailerLite
+  - match_include: _spf.mlsend.com
+    add_selectors:
+      - mlsend
+  - match_include: _spf.mailerlite.com
+    add_selectors:
+      - ml1
+      - ml2

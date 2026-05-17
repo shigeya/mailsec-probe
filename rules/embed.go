@@ -8,3 +8,9 @@ import _ "embed"
 //
 //go:embed dkim_selectors.yaml
 var DKIMSelectorsYAML []byte
+
+// DKIMSelectorInferenceYAML maps SPF include patterns to additional
+// DKIM selectors. See docs/DKIM_SELECTORS.md.
+//
+//go:embed dkim_selector_inference.yaml
+var DKIMSelectorInferenceYAML []byte

@@ -118,6 +118,8 @@ The YAML format mirrors `rules/dkim_selectors.yaml`.
     --dns-server string             DNS server (host or host:port). Default: system resolver
     --dkim-selector strings         additional DKIM selector to probe (repeatable)
     --dkim-selectors-file string    override embedded DKIM selector list
+    --no-spf-inference              disable SPF-driven DKIM selector inference
+    --no-rua-check                  disable DMARC rua= HTTPS reachability HEAD checks
     --timeout duration              per-domain observation timeout  (default 10s)
     --concurrency int               max parallel domains  (default 8)
     --include-raw                   include raw TXT/HTTPS bodies in output
@@ -172,10 +174,23 @@ the upstream operators rotating records.
 
 ## Phase
 
-Currently **Phase 1.0 MVP**. Out of scope for this phase:
+Currently **Phase 1.5**. Phase 1.5 adds:
+
+- **SPF → DKIM selector inference** (`--no-spf-inference` to disable):
+  when SPF includes a recognised provider (Google Workspace, Microsoft
+  365, Amazon SES, Mailgun, SendGrid, Mandrill, Postmark, Fastmail,
+  ProtonMail, Zoho, MailerSend, ...), provider-specific DKIM
+  selectors are added to the probe set per domain.
+- **MTA-STS ↔ MX consistency** check: actual MX records are matched
+  against the policy's `mx:` patterns (including `*.suffix`
+  wildcards). A mismatch downgrades the verdict to *misconfigured*.
+- **DMARC rua reachability** (`--no-rua-check` to disable): HTTPS rua
+  endpoints get a HEAD request; `mailto:` endpoints are noted but
+  never probed (out of scope by design).
+
+Out of scope:
 
 - SMTP / STARTTLS / DANE-TLSA validation (Phase 2 `--active`)
-- SPF-driven DKIM selector inference (Phase 1.5)
 - On-the-wire DNSKEY/DS chain validation
 - Batch input (`--input domains.txt`) and TSV output (Phase 2.5)
 - BIMI VMC (Verified Mark Certificate) validation

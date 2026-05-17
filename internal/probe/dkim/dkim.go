@@ -24,12 +24,15 @@ const name = "dkim"
 // defaultConcurrency caps parallel selector lookups per domain.
 const defaultConcurrency = 8
 
-// Probe observes DKIM with a fixed selector set.
+// Probe observes DKIM with a fixed selector set, optionally augmented
+// by SPF-driven inference when EnableInference is true.
 type Probe struct {
-	DNS         dnsclient.Client
-	Selectors   []string
-	Concurrency int
-	IncludeRaw  bool
+	DNS              dnsclient.Client
+	Selectors        []string
+	InferenceRules   []InferenceRule
+	EnableInference  bool
+	Concurrency      int
+	IncludeRaw       bool
 }
 
 // LoadSelectors parses a YAML document of the form:
@@ -54,17 +57,26 @@ func LoadSelectors(data []byte) ([]string, error) {
 
 // New constructs a Probe. If selectors is empty the embedded default
 // list is loaded. extras are appended de-duplicated after the base set.
+// SPF-driven inference is enabled by default and uses the embedded
+// inference rules; call New, then assign EnableInference=false or
+// InferenceRules=nil to opt out or override.
 func New(d dnsclient.Client, extras []string, includeRaw bool) (*Probe, error) {
 	base, err := LoadSelectors(nil)
 	if err != nil {
 		return nil, err
 	}
 	merged := dedupe(append(base, extras...))
+	irules, err := LoadInferenceRules(nil)
+	if err != nil {
+		return nil, err
+	}
 	return &Probe{
-		DNS:         d,
-		Selectors:   merged,
-		Concurrency: defaultConcurrency,
-		IncludeRaw:  includeRaw,
+		DNS:             d,
+		Selectors:       merged,
+		InferenceRules:  irules,
+		EnableInference: true,
+		Concurrency:     defaultConcurrency,
+		IncludeRaw:      includeRaw,
 	}, nil
 }
 
@@ -85,9 +97,10 @@ type Key struct {
 
 // Details is the structured DKIM detail payload.
 type Details struct {
-	SelectorsTried []string `json:"selectors_tried"`
-	SelectorsFound []string `json:"selectors_found,omitempty"`
-	Keys           []Key    `json:"keys,omitempty"`
+	SelectorsTried    []string `json:"selectors_tried"`
+	SelectorsInferred []string `json:"selectors_inferred,omitempty"`
+	SelectorsFound    []string `json:"selectors_found,omitempty"`
+	Keys              []Key    `json:"keys,omitempty"`
 }
 
 // Summary returns a short human description (used by the human formatter).
@@ -110,10 +123,26 @@ func (d Details) Summary() string {
 }
 
 // Run probes every configured selector and returns a Feature.
+//
+// When EnableInference is true (the default) the probe issues an
+// additional SPF lookup at the apex, runs the inference rules, and
+// merges any extra selectors into the per-call list. Inferred
+// selectors are recorded in Details.SelectorsInferred.
 func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
 	conc := p.Concurrency
 	if conc <= 0 {
 		conc = defaultConcurrency
+	}
+
+	// Per-call selector list: base selectors plus anything inferred
+	// from SPF for this specific domain.
+	selectors := append([]string{}, p.Selectors...)
+	var inferred []string
+	if p.EnableInference && len(p.InferenceRules) > 0 {
+		inferred = inferSelectorsFromSPF(ctx, p.DNS, domain, p.InferenceRules)
+		if len(inferred) > 0 {
+			selectors = dedupe(append(selectors, inferred...))
+		}
 	}
 
 	type result struct {
@@ -123,11 +152,11 @@ func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
 		sig      signals.Signal
 		hit      bool
 	}
-	results := make([]result, len(p.Selectors))
+	results := make([]result, len(selectors))
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(conc)
-	for i, sel := range p.Selectors {
+	for i, sel := range selectors {
 		g.Go(func() error {
 			target := sel + "._domainkey." + domain
 			res, err := p.DNS.LookupTXT(gctx, target)
@@ -194,9 +223,10 @@ func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
 	sort.Strings(found)
 
 	d := Details{
-		SelectorsTried: tried,
-		SelectorsFound: found,
-		Keys:           keys,
+		SelectorsTried:    tried,
+		SelectorsInferred: inferred,
+		SelectorsFound:    found,
+		Keys:              keys,
 	}
 
 	// Count "live" vs "revoked" hits. A key with v=DKIM1 and an empty
