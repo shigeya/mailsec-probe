@@ -73,6 +73,8 @@ type rootOpts struct {
 	smtpPort       int
 	smtpTimeout    time.Duration
 	ehloName       string
+	inputFile      string
+	stats          bool
 	timeout        time.Duration
 	concurrency    int
 	includeRaw     bool
@@ -95,7 +97,7 @@ func newRoot() *cobra.Command {
 		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Args:          cobra.MinimumNArgs(1),
+		Args:          cobra.ArbitraryArgs, // accept zero args when --input is given
 		RunE: func(cmd *cobra.Command, args []string) error {
 			setupLogger(opts.verbose)
 			return run(cmd.Context(), opts, args)
@@ -103,7 +105,7 @@ func newRoot() *cobra.Command {
 	}
 
 	pf := cmd.PersistentFlags()
-	pf.StringVarP(&opts.outputFmt, "output", "o", opts.outputFmt, "output format: human|json")
+	pf.StringVarP(&opts.outputFmt, "output", "o", opts.outputFmt, "output format: human|json|tsv")
 	pf.StringVar(&opts.dnsServer, "dns-server", "", "DNS server to query (host or host:port). Default: system resolver")
 	pf.StringSliceVar(&opts.dkimSelectors, "dkim-selector", nil, "additional DKIM selector to probe (repeatable)")
 	pf.StringVar(&opts.dkimSelFile, "dkim-selectors-file", "", "override the embedded DKIM selector list with this YAML file")
@@ -113,6 +115,8 @@ func newRoot() *cobra.Command {
 	pf.IntVar(&opts.smtpPort, "smtp-port", opts.smtpPort, "SMTP port for --active probes")
 	pf.DurationVar(&opts.smtpTimeout, "smtp-timeout", opts.smtpTimeout, "per-MX SMTP probe timeout")
 	pf.StringVar(&opts.ehloName, "ehlo-name", opts.ehloName, "name used in our EHLO greeting during --active probes")
+	pf.StringVar(&opts.inputFile, "input", "", "read additional domains from this file (one per line, # comments). Use \"-\" for stdin")
+	pf.BoolVar(&opts.stats, "stats", false, "append a cross-domain statistics block to the output")
 	pf.DurationVar(&opts.timeout, "timeout", opts.timeout, "per-domain observation timeout")
 	pf.IntVar(&opts.concurrency, "concurrency", opts.concurrency, "max parallel domains")
 	pf.BoolVar(&opts.includeRaw, "include-raw", false, "include raw TXT/HTTPS bodies in the output")
@@ -133,7 +137,16 @@ func setupLogger(v int) {
 	slog.SetDefault(slog.New(h))
 }
 
-func run(ctx context.Context, opts *rootOpts, domains []string) error {
+func run(ctx context.Context, opts *rootOpts, args []string) error {
+	fileDomains, err := readDomainsFile(opts.inputFile)
+	if err != nil {
+		return err
+	}
+	domains := mergeDomains(args, fileDomains)
+	if len(domains) == 0 {
+		return fmt.Errorf("no domains supplied (pass as args or via --input)")
+	}
+
 	dnsCli, err := dnsclient.New(dnsclient.Config{
 		Server:  opts.dnsServer,
 		Timeout: opts.timeout,
@@ -152,7 +165,6 @@ func run(ctx context.Context, opts *rootOpts, domains []string) error {
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(opts.concurrency)
 	for i, d := range domains {
-		d := strings.TrimSpace(strings.ToLower(d))
 		g.Go(func() error {
 			rctx, cancel := context.WithTimeout(gctx, opts.timeout*2)
 			defer cancel()
@@ -164,15 +176,29 @@ func run(ctx context.Context, opts *rootOpts, domains []string) error {
 
 	switch opts.outputFmt {
 	case "json":
-		if err := output.WriteJSON(os.Stdout, reports); err != nil {
+		if err := output.WriteJSON(os.Stdout, reports, opts.stats); err != nil {
 			return err
+		}
+	case "tsv":
+		if err := output.WriteTSV(os.Stdout, reports); err != nil {
+			return err
+		}
+		if opts.stats {
+			if err := output.WriteStatsTSV(os.Stdout, reports); err != nil {
+				return err
+			}
 		}
 	case "human", "":
 		if err := output.WriteHuman(os.Stdout, reports); err != nil {
 			return err
 		}
+		if opts.stats {
+			if err := output.WriteStatsHuman(os.Stdout, reports); err != nil {
+				return err
+			}
+		}
 	default:
-		return fmt.Errorf("unknown output format %q (want human|json)", opts.outputFmt)
+		return fmt.Errorf("unknown output format %q (want human|json|tsv)", opts.outputFmt)
 	}
 
 	if anyDomainFailed(reports) {
