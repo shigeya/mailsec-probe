@@ -117,6 +117,7 @@ The YAML format mirrors `rules/dkim_selectors.yaml`.
 
 ```
 -o, --output string                 output format: human|json|tsv  (default "human")
+    --color string                  colour mode for human output: auto|always|never  (default "auto")
     --input string                  read additional domains from file (one per line, # comments); use "-" for stdin
     --stats                         append cross-domain statistics to the output
     --dns-server string             DNS server (host or host:port). Default: system resolver

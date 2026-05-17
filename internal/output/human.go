@@ -18,6 +18,11 @@ type Summarizer interface {
 
 // WriteHuman emits a human-readable summary for each report.
 func WriteHuman(w io.Writer, reports []signals.Report) error {
+	return WriteHumanColored(w, reports, Colorizer{})
+}
+
+// WriteHumanColored is WriteHuman with explicit color control.
+func WriteHumanColored(w io.Writer, reports []signals.Report, c Colorizer) error {
 	for idx, rep := range reports {
 		if idx > 0 {
 			fmt.Fprintln(w)
@@ -29,11 +34,11 @@ func WriteHuman(w io.Writer, reports []signals.Report) error {
 				branch = "└─"
 			}
 			detail := primaryDetail(f)
-			fmt.Fprintf(w, "%s %-10s %-13s conf=%.2f   %s\n",
+			fmt.Fprintf(w, "%s %-10s %s   %s   %s\n",
 				branch,
 				strings.ToUpper(f.Name),
-				strings.ToUpper(string(f.Status)),
-				f.Confidence,
+				colouredStatusCell(c, f.Status),
+				c.Dim(fmt.Sprintf("conf=%.2f", f.Confidence)),
 				detail,
 			)
 		}
@@ -42,6 +47,19 @@ func WriteHuman(w io.Writer, reports []signals.Report) error {
 		}
 	}
 	return nil
+}
+
+// colouredStatusCell renders the status in uppercase coloured by its
+// semantic level, then pads to the longest status width (13 chars:
+// "MISCONFIGURED") so columns line up even after the invisible ANSI
+// escapes are added.
+func colouredStatusCell(c Colorizer, s signals.Status) string {
+	upper := strings.ToUpper(string(s))
+	pad := 13 - len(upper)
+	if pad < 0 {
+		pad = 0
+	}
+	return c.colorByStatus(s, upper) + strings.Repeat(" ", pad)
 }
 
 // primaryDetail returns a one-line summary for a Feature row. The

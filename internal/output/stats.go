@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 
 	"github.com/shigeya/mailsec-probe/internal/signals"
 )
@@ -78,20 +79,43 @@ func Compute(reports []signals.Report) Stats {
 
 // WriteStatsHuman writes an ASCII summary table.
 func WriteStatsHuman(w io.Writer, reports []signals.Report) error {
+	return WriteStatsHumanColored(w, reports, Colorizer{})
+}
+
+// WriteStatsHumanColored is WriteStatsHuman with explicit color control.
+func WriteStatsHumanColored(w io.Writer, reports []signals.Report, c Colorizer) error {
+	const colWidth = 15
 	s := Compute(reports)
 	fmt.Fprintf(w, "\n=== Summary (%d domain%s) ===\n", s.NumDomains, plural(s.NumDomains))
 	fmt.Fprintf(w, "%-10s %-15s %-15s %-15s %-15s\n",
 		"feature", "present", "absent", "misconfig", "unknown")
 	for _, f := range s.Features {
-		fmt.Fprintf(w, "%-10s %-15s %-15s %-15s %-15s\n",
+		fmt.Fprintf(w, "%-10s %s %s %s %s\n",
 			f.Feature,
-			countCell(f.Present, f.Total),
-			countCell(f.Absent, f.Total),
-			countCell(f.Misconfigured, f.Total),
-			countCell(f.Unknown, f.Total),
+			statsCell(c, signals.StatusPresent, f.Present, f.Total, colWidth),
+			statsCell(c, signals.StatusAbsent, f.Absent, f.Total, colWidth),
+			statsCell(c, signals.StatusMisconfigured, f.Misconfigured, f.Total, colWidth),
+			statsCell(c, signals.StatusUnknown, f.Unknown, f.Total, colWidth),
 		)
 	}
 	return nil
+}
+
+// statsCell renders one count cell with optional colour. It pads to
+// width on the *visible* text before adding ANSI escapes, so the
+// columns line up regardless of whether colour is on. Zero counts
+// stay default-coloured so the table reads as "where the action is".
+func statsCell(c Colorizer, s signals.Status, n, total, width int) string {
+	visible := countCell(n, total)
+	pad := width - len(visible)
+	if pad < 0 {
+		pad = 0
+	}
+	padding := strings.Repeat(" ", pad)
+	if n == 0 {
+		return visible + padding
+	}
+	return c.colorByStatus(s, visible) + padding
 }
 
 // WriteStatsTSV appends stats rows to a TSV stream after a separator

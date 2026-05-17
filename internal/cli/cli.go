@@ -64,6 +64,7 @@ func (e *exitCodeErr) Error() string { return fmt.Sprintf("exit %d", e.code) }
 
 type rootOpts struct {
 	outputFmt      string
+	color          string
 	dnsServer      string
 	dkimSelectors  []string
 	dkimSelFile    string
@@ -84,6 +85,7 @@ type rootOpts struct {
 func newRoot() *cobra.Command {
 	opts := &rootOpts{
 		outputFmt:   "human",
+		color:       "auto",
 		timeout:     10 * time.Second,
 		concurrency: 8,
 		smtpPort:    25,
@@ -106,6 +108,7 @@ func newRoot() *cobra.Command {
 
 	pf := cmd.PersistentFlags()
 	pf.StringVarP(&opts.outputFmt, "output", "o", opts.outputFmt, "output format: human|json|tsv")
+	pf.StringVar(&opts.color, "color", opts.color, "colour mode for human output: auto|always|never")
 	pf.StringVar(&opts.dnsServer, "dns-server", "", "DNS server to query (host or host:port). Default: system resolver")
 	pf.StringSliceVar(&opts.dkimSelectors, "dkim-selector", nil, "additional DKIM selector to probe (repeatable)")
 	pf.StringVar(&opts.dkimSelFile, "dkim-selectors-file", "", "override the embedded DKIM selector list with this YAML file")
@@ -189,11 +192,12 @@ func run(ctx context.Context, opts *rootOpts, args []string) error {
 			}
 		}
 	case "human", "":
-		if err := output.WriteHuman(os.Stdout, reports); err != nil {
+		colorizer := output.NewColorizer(output.ColorMode(opts.color), os.Stdout)
+		if err := output.WriteHumanColored(os.Stdout, reports, colorizer); err != nil {
 			return err
 		}
 		if opts.stats {
-			if err := output.WriteStatsHuman(os.Stdout, reports); err != nil {
+			if err := output.WriteStatsHumanColored(os.Stdout, reports, colorizer); err != nil {
 				return err
 			}
 		}
