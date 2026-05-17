@@ -1,0 +1,19 @@
+# Compiled binaries
+/mailsec-probe
+/bin/
+
+# Test artifacts
+*.test
+*.out
+coverage.*
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Claude Code local settings (user-specific, not for VCS)
+/.claude/settings.local.json

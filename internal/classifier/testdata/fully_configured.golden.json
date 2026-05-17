@@ -1,0 +1,139 @@
+{
+  "domain": "example.test",
+  "features": [
+    {
+      "name": "spf",
+      "status": "present",
+      "confidence": 0.95,
+      "reasons": [
+        "qualifier=fail"
+      ],
+      "details": {
+        "qualifier": "fail",
+        "includes": [
+          "_spf.example.test"
+        ],
+        "mechanisms": [
+          "include:_spf.example.test",
+          "-all"
+        ]
+      }
+    },
+    {
+      "name": "dmarc",
+      "status": "present",
+      "confidence": 0.95,
+      "reasons": [
+        "p=reject"
+      ],
+      "details": {
+        "policy": "reject",
+        "percent": "100",
+        "aggregate_reports": "mailto:dmarc@example.test"
+      }
+    },
+    {
+      "name": "dkim",
+      "status": "present",
+      "confidence": 0.95,
+      "reasons": [
+        "DKIM key(s) at: selector1"
+      ],
+      "details": {
+        "selectors_tried": [
+          "selector1"
+        ],
+        "selectors_found": [
+          "selector1"
+        ],
+        "keys": [
+          {
+            "selector": "selector1",
+            "key_type": "rsa",
+            "public_key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAfake"
+          }
+        ]
+      }
+    },
+    {
+      "name": "mx",
+      "status": "present",
+      "confidence": 1,
+      "reasons": [
+        "2 MX record(s)"
+      ],
+      "details": {
+        "hosts": [
+          {
+            "preference": 10,
+            "host": "mx1.example.test"
+          },
+          {
+            "preference": 20,
+            "host": "mx2.example.test"
+          }
+        ]
+      }
+    },
+    {
+      "name": "mta-sts",
+      "status": "present",
+      "confidence": 0.95,
+      "reasons": [
+        "TXT _mta-sts present",
+        "HTTPS policy present",
+        "mode=enforce"
+      ],
+      "details": {
+        "dns_record": {
+          "id": "20240101000000Z"
+        },
+        "http_status": 200,
+        "policy": {
+          "version": "STSv1",
+          "mode": "enforce",
+          "mx": [
+            "mx1.example.test",
+            "mx2.example.test"
+          ],
+          "max_age": "604800"
+        }
+      }
+    },
+    {
+      "name": "tls-rpt",
+      "status": "present",
+      "confidence": 0.9,
+      "reasons": [
+        "v=TLSRPTv1"
+      ],
+      "details": {
+        "rua": "mailto:tlsrpt@example.test"
+      }
+    },
+    {
+      "name": "bimi",
+      "status": "present",
+      "confidence": 0.9,
+      "reasons": [
+        "v=BIMI1"
+      ],
+      "details": {
+        "logo_uri": "https://example.test/logo.svg"
+      }
+    },
+    {
+      "name": "dnssec",
+      "status": "present",
+      "confidence": 1,
+      "reasons": [
+        "DS present in parent zone",
+        "AD bit set on TXT response"
+      ],
+      "details": {
+        "ad_bit_on_txt": true,
+        "has_ds": true
+      }
+    }
+  ]
+}

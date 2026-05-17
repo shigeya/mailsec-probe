@@ -1,0 +1,78 @@
+# Default DKIM selectors probed when the user does not supply --dkim-selector.
+#
+# Sources: observed in widespread mail provider deployments. This is a
+# best-effort list, not exhaustive. Add entries via --dkim-selector or
+# replace the whole list with --dkim-selectors-file.
+#
+# Ordering matters: more common selectors come first to maximise the
+# odds of an early hit when parallel probing is rate-limited.
+selectors:
+  # generic
+  - default
+  - mail
+  - dkim
+  - selector1
+  - selector2
+  - s1
+  - s2
+  - k1
+  - k2
+
+  # Google Workspace
+  - google
+  - "20161025"
+  - "20210112"
+
+  # Microsoft 365 / Outlook
+  - selector1-com
+  - selector2-com
+
+  # Amazon SES (commonly use random UUIDs but also these)
+  - amazonses
+
+  # Mandrill / Mailchimp
+  - mandrill
+  - k3
+
+  # SendGrid
+  - s1024
+  - smtpapi
+
+  # Mailgun
+  - mailo
+  - mg
+  - krs
+
+  # Postmark
+  - "20210309165435pm"
+
+  # Fastmail
+  - fm1
+  - fm2
+  - fm3
+
+  # ProtonMail
+  - protonmail
+  - protonmail2
+  - protonmail3
+
+  # Zoho
+  - zoho
+  - zmail
+
+  # MailerSend / MailerLite
+  - mlsend
+  - ml1
+  - ml2
+
+  # Mxvault / EveryAction etc.
+  - mxvault
+  - everlytickey1
+  - everlytickey2
+
+  # Misc widely seen names
+  - smtp
+  - mta
+  - email
+  - dkim1
+  - dkim2
