@@ -473,8 +473,8 @@ across mailsec-probe via the Mock DNS / Mock DoH layer.
 
 | Week | dnsdata-go side | mailsec-probe side |
 |------|------------------|---------------------|
-| Week 1 | repo bootstrap; minimal `types/`, `wire/`, `zone/` + tests | (none) |
-| Week 2 | full `dnssec/` (DNSKEY/RRSIG/DS/NSEC/anchors), `resolver/doh/` | (none) |
+| Week 1 | repo bootstrap; minimal `types/`, `wire/` + tests (`zone/` slipped to Week 2) | (none) |
+| Week 2 | `zone/`, full `dnssec/` (DNSKEY/RRSIG/DS/NSEC/anchors), `resolver/doh/` | (none) |
 | Week 3 | `verifier/chain.go` (chain walker), `v0.1.0` tag | implement `--dnssec-mode validate`, swap in `internal/probe/dnssec/`, regenerate goldens |
 
 For progress sharing and session ownership, see the `dnsdata-go` repo's CLAUDE.md / DESIGN.md.
