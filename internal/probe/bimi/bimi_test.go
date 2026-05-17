@@ -14,7 +14,7 @@ func TestRun_PresentWithLogoAndVMC(t *testing.T) {
 		Records: []string{"v=BIMI1; l=https://example.com/logo.svg; a=https://example.com/vmc.pem"},
 	}
 	p := New(m, false)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusPresent {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -30,7 +30,7 @@ func TestRun_PresentWithLogoAndVMC(t *testing.T) {
 func TestRun_Absent(t *testing.T) {
 	m := dnsclient.NewMock()
 	p := New(m, false)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusAbsent {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -43,7 +43,7 @@ func TestRun_CustomSelector(t *testing.T) {
 	}
 	p := New(m, false)
 	p.Selector = "custom"
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusPresent {
 		t.Fatalf("status = %s", f.Status)
 	}

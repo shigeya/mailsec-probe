@@ -54,7 +54,11 @@ func (d Details) Summary() string {
 // observe AD, then query DS at the apex (which lives in the parent
 // zone). Either positive indicator is enough to call DNSSEC present;
 // AD without DS is unusual but possible mid-rollout.
-func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
+func (p *Probe) Run(ctx context.Context, domain string) []signals.Feature {
+	return []signals.Feature{p.runOne(ctx, domain)}
+}
+
+func (p *Probe) runOne(ctx context.Context, domain string) signals.Feature {
 	txt, txtErr := p.DNS.LookupTXT(ctx, domain)
 	hasDS, dsErr := p.DNS.HasDS(ctx, domain)
 

@@ -14,7 +14,7 @@ func TestRun_Present(t *testing.T) {
 		Records: []string{"v=TLSRPTv1; rua=mailto:tlsrpt@example.com"},
 	}
 	p := New(m, false)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusPresent {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -27,7 +27,7 @@ func TestRun_Present(t *testing.T) {
 func TestRun_Absent(t *testing.T) {
 	m := dnsclient.NewMock()
 	p := New(m, false)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusAbsent {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -39,7 +39,7 @@ func TestRun_MissingRua_IsMisconfigured(t *testing.T) {
 		Records: []string{"v=TLSRPTv1"},
 	}
 	p := New(m, false)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusMisconfigured {
 		t.Fatalf("status = %s", f.Status)
 	}

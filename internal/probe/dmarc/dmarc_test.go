@@ -15,7 +15,7 @@ func TestRun_PresentReject(t *testing.T) {
 	}
 	p := New(m, true)
 	p.EnableRUACheck = false
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusPresent {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -32,7 +32,7 @@ func TestRun_Absent(t *testing.T) {
 	m := dnsclient.NewMock()
 	p := New(m, false)
 	p.EnableRUACheck = false
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusAbsent {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -54,7 +54,7 @@ func TestRun_RUAReachable_HTTPS(t *testing.T) {
 	p := New(m, false)
 	p.HTTP = stubFetcher{status: 200}
 	p.EnableRUACheck = true
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	d := f.Details.(Details)
 	if len(d.RUAEndpoints) != 2 {
 		t.Fatalf("rua endpoints = %#v", d.RUAEndpoints)
@@ -79,7 +79,7 @@ func TestRun_RUAUnreachable_HTTPS(t *testing.T) {
 	p := New(m, false)
 	p.HTTP = stubFetcher{status: 503}
 	p.EnableRUACheck = true
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	d := f.Details.(Details)
 	if d.RUAEndpoints[0].Reachable {
 		t.Fatalf("503 should not be considered reachable: %+v", d.RUAEndpoints[0])
@@ -93,7 +93,7 @@ func TestRun_RUACheckDisabled(t *testing.T) {
 	}
 	p := New(m, false)
 	p.EnableRUACheck = false
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	d := f.Details.(Details)
 	if d.RUAEndpoints[0].Checked {
 		t.Fatalf("disabled flag should suppress HEAD: %+v", d.RUAEndpoints[0])
@@ -107,7 +107,7 @@ func TestRun_MissingPolicyTag(t *testing.T) {
 	}
 	p := New(m, false)
 	p.EnableRUACheck = false
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusMisconfigured {
 		t.Fatalf("status = %s", f.Status)
 	}

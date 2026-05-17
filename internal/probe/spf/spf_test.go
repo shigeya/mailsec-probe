@@ -14,7 +14,7 @@ func TestRun_PresentSoftfail(t *testing.T) {
 		Records: []string{"v=spf1 include:_spf.example.com ~all"},
 	}
 	p := New(m, true)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusPresent {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -36,7 +36,7 @@ func TestRun_Absent(t *testing.T) {
 		Records: []string{"google-site-verification=abc"},
 	}
 	p := New(m, false)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusAbsent {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -51,7 +51,7 @@ func TestRun_MultipleSPFIsMisconfigured(t *testing.T) {
 		},
 	}
 	p := New(m, false)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusMisconfigured {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -63,7 +63,7 @@ func TestRun_PlusAllIsMisconfigured(t *testing.T) {
 		Records: []string{"v=spf1 +all"},
 	}
 	p := New(m, false)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusMisconfigured {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -75,7 +75,7 @@ func TestRun_RedirectOnly_NotMisconfigured(t *testing.T) {
 		Records: []string{"v=spf1 redirect=_spf.parent.example"},
 	}
 	p := New(m, false)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusPresent {
 		t.Fatalf("status = %s, want present (redirect delegates policy)", f.Status)
 	}
@@ -91,7 +91,7 @@ func TestRun_RedirectMechanism(t *testing.T) {
 		Records: []string{"v=spf1 redirect=_spf.parent.example -all"},
 	}
 	p := New(m, false)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	d := f.Details.(Details)
 	if d.Redirect != "_spf.parent.example" {
 		t.Fatalf("redirect = %q", d.Redirect)

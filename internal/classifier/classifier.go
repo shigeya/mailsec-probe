@@ -17,11 +17,16 @@ import (
 	"github.com/shigeya/mailsec-probe/internal/signals"
 )
 
-// Probe runs one feature observation. Implementations must be
-// goroutine-safe and must not modify their inputs.
+// Probe runs one or more feature observations. Implementations must
+// be goroutine-safe and must not modify their inputs.
+//
+// Returning a slice (instead of a single Feature) lets one probe
+// emit several related features in a single network roundtrip — most
+// importantly, the active mtatls probe emits both "starttls" and
+// "dane" from one SMTP session per MX.
 type Probe interface {
 	Name() string
-	Run(ctx context.Context, domain string) signals.Feature
+	Run(ctx context.Context, domain string) []signals.Feature
 }
 
 // Runner runs a fixed set of probes against one domain.
@@ -53,21 +58,21 @@ func (r *Runner) Run(ctx context.Context, domain string) signals.Report {
 		return rep
 	}
 
-	features := make([]signals.Feature, len(r.probes))
+	perProbe := make([][]signals.Feature, len(r.probes))
 
 	g, gctx := errgroup.WithContext(ctx)
 	for i, p := range r.probes {
 		g.Go(func() error {
-			features[i] = p.Run(gctx, domain)
+			perProbe[i] = p.Run(gctx, domain)
 			return nil
 		})
 	}
 	_ = g.Wait()
 
-	rep.Features = features
-
-	// Stable sort by configured order is already preserved; we sort
-	// only when the same probe slot ends up empty (defensive).
+	// Flatten and stable-sort by canonical feature order.
+	for _, fs := range perProbe {
+		rep.Features = append(rep.Features, fs...)
+	}
 	sort.SliceStable(rep.Features, func(i, j int) bool {
 		return featureOrder(rep.Features[i].Name) < featureOrder(rep.Features[j].Name)
 	})
@@ -78,14 +83,16 @@ func (r *Runner) Run(ctx context.Context, domain string) signals.Report {
 // to the end while preserving relative input order.
 func featureOrder(name string) int {
 	order := map[string]int{
-		"spf":     1,
-		"dmarc":   2,
-		"dkim":    3,
-		"mx":      4,
-		"mta-sts": 5,
-		"tls-rpt": 6,
-		"bimi":    7,
-		"dnssec":  8,
+		"spf":      1,
+		"dmarc":    2,
+		"dkim":     3,
+		"mx":       4,
+		"starttls": 5, // active probe
+		"dane":     6, // active probe
+		"mta-sts":  7,
+		"tls-rpt":  8,
+		"bimi":     9,
+		"dnssec":   10,
 	}
 	if v, ok := order[name]; ok {
 		return v

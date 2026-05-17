@@ -100,7 +100,11 @@ func summarizeRUA(eps []RUAEndpoint) (bool, bool) {
 }
 
 // Run observes DMARC and returns a Feature.
-func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
+func (p *Probe) Run(ctx context.Context, domain string) []signals.Feature {
+	return []signals.Feature{p.runOne(ctx, domain)}
+}
+
+func (p *Probe) runOne(ctx context.Context, domain string) signals.Feature {
 	target := "_dmarc." + domain
 	res, err := p.DNS.LookupTXT(ctx, target)
 	sig := signals.Signal{

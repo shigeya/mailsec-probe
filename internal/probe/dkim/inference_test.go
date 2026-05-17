@@ -91,7 +91,7 @@ func TestRun_InferenceMergesIntoSelectors(t *testing.T) {
 	}
 	// Strip default selectors so the test focuses on inference only.
 	p.Selectors = []string{}
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	d := f.Details.(Details)
 	foundInferred := false
 	for _, s := range d.SelectorsInferred {

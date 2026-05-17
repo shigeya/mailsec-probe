@@ -13,7 +13,7 @@ func TestRun_DSAndAD(t *testing.T) {
 	m.DS["example.com"] = true
 	m.TXT["example.com"] = dnsclient.TXTResult{Records: []string{"hello"}, AD: true}
 	p := New(m)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusPresent {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -30,7 +30,7 @@ func TestRun_DSOnly(t *testing.T) {
 	m.DS["example.com"] = true
 	m.TXT["example.com"] = dnsclient.TXTResult{Records: []string{"hello"}, AD: false}
 	p := New(m)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusPresent {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -43,7 +43,7 @@ func TestRun_ADOnly(t *testing.T) {
 	m := dnsclient.NewMock()
 	m.TXT["example.com"] = dnsclient.TXTResult{Records: []string{"hello"}, AD: true}
 	p := New(m)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusPresent {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -53,7 +53,7 @@ func TestRun_Unsigned(t *testing.T) {
 	m := dnsclient.NewMock()
 	m.TXT["example.com"] = dnsclient.TXTResult{Records: []string{"hello"}}
 	p := New(m)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusAbsent {
 		t.Fatalf("status = %s", f.Status)
 	}

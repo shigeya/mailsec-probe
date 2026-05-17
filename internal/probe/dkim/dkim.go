@@ -128,7 +128,11 @@ func (d Details) Summary() string {
 // additional SPF lookup at the apex, runs the inference rules, and
 // merges any extra selectors into the per-call list. Inferred
 // selectors are recorded in Details.SelectorsInferred.
-func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
+func (p *Probe) Run(ctx context.Context, domain string) []signals.Feature {
+	return []signals.Feature{p.runOne(ctx, domain)}
+}
+
+func (p *Probe) runOne(ctx context.Context, domain string) signals.Feature {
 	conc := p.Concurrency
 	if conc <= 0 {
 		conc = defaultConcurrency

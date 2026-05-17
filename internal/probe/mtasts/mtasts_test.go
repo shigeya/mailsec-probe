@@ -40,7 +40,7 @@ func TestRun_PresentEnforce(t *testing.T) {
 		"max_age: 604800",
 	}, "\n")
 	p := newProbe(m, stubHTTP{status: http.StatusOK, body: policy})
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusPresent {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -59,7 +59,7 @@ func TestRun_DNSOnly_Misconfigured(t *testing.T) {
 		Records: []string{"v=STSv1; id=20240101000000Z"},
 	}
 	p := newProbe(m, stubHTTP{status: http.StatusNotFound})
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusMisconfigured {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -68,7 +68,7 @@ func TestRun_DNSOnly_Misconfigured(t *testing.T) {
 func TestRun_Absent(t *testing.T) {
 	m := dnsclient.NewMock()
 	p := newProbe(m, stubHTTP{status: http.StatusNotFound})
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusAbsent {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -87,7 +87,7 @@ func TestRun_PolicyMXMismatch_IsMisconfigured(t *testing.T) {
 	}
 	body := "version: STSv1\nmode: enforce\nmx: *.mail.example.com\nmax_age: 86400\n"
 	p := newProbe(m, stubHTTP{status: http.StatusOK, body: body})
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusMisconfigured {
 		t.Fatalf("status = %s, want misconfigured (MX outside policy)", f.Status)
 	}
@@ -113,7 +113,7 @@ func TestRun_PolicyMXMatch_IsPresent(t *testing.T) {
 	}
 	body := "version: STSv1\nmode: enforce\nmx: *.mail.example.com\nmax_age: 86400\n"
 	p := newProbe(m, stubHTTP{status: http.StatusOK, body: body})
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusPresent {
 		t.Fatalf("status = %s, want present", f.Status)
 	}
@@ -156,7 +156,7 @@ func TestRun_PolicyNoneIsMisconfigured(t *testing.T) {
 	}
 	body := "version: STSv1\nmode: none\n"
 	p := newProbe(m, stubHTTP{status: http.StatusOK, body: body})
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusMisconfigured {
 		t.Fatalf("status = %s", f.Status)
 	}

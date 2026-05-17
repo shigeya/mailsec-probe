@@ -99,7 +99,11 @@ func (d Details) Summary() string {
 }
 
 // Run observes both the DNS marker and the HTTPS policy.
-func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
+func (p *Probe) Run(ctx context.Context, domain string) []signals.Feature {
+	return []signals.Feature{p.runOne(ctx, domain)}
+}
+
+func (p *Probe) runOne(ctx context.Context, domain string) signals.Feature {
 	d := Details{}
 	var sigs []signals.Signal
 	var reasons []string

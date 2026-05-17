@@ -17,7 +17,7 @@ func TestRun_Present_SortedByPreference(t *testing.T) {
 		},
 	}
 	p := New(m)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusPresent {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -36,7 +36,7 @@ func TestRun_NullMX_RFC7505(t *testing.T) {
 		Records: []dnsclient.MX{{Host: "", Preference: 0}},
 	}
 	p := New(m)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusAbsent {
 		t.Fatalf("status = %s, want absent (null MX)", f.Status)
 	}
@@ -48,7 +48,7 @@ func TestRun_NullMX_RFC7505(t *testing.T) {
 func TestRun_Absent(t *testing.T) {
 	m := dnsclient.NewMock()
 	p := New(m)
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusAbsent {
 		t.Fatalf("status = %s", f.Status)
 	}

@@ -24,7 +24,7 @@ func TestRun_PresentSingleSelector(t *testing.T) {
 		Records: []string{"v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxxxx"},
 	}
 	p := newProbeWithSelectors(t, m, []string{"google", "selector1"})
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusPresent {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -40,7 +40,7 @@ func TestRun_PresentSingleSelector(t *testing.T) {
 func TestRun_AbsentAllTried(t *testing.T) {
 	m := dnsclient.NewMock()
 	p := newProbeWithSelectors(t, m, []string{"default", "google", "selector1"})
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusAbsent {
 		t.Fatalf("status = %s", f.Status)
 	}
@@ -60,7 +60,7 @@ func TestRun_RevokedWildcard_IsAbsent(t *testing.T) {
 		m.TXT[sel+"._domainkey.example.com"] = revoked
 	}
 	p := newProbeWithSelectors(t, m, []string{"default", "google", "selector1"})
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusAbsent {
 		t.Fatalf("status = %s, want absent (all revoked)", f.Status)
 	}
@@ -82,7 +82,7 @@ func TestRun_AcceptsRecordWithoutVTag(t *testing.T) {
 		Records: []string{"k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA"},
 	}
 	p := newProbeWithSelectors(t, m, []string{"selector1"})
-	f := p.Run(context.Background(), "example.com")
+	f := p.Run(context.Background(), "example.com")[0]
 	if f.Status != signals.StatusPresent {
 		t.Fatalf("status = %s", f.Status)
 	}

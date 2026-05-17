@@ -72,7 +72,11 @@ func (d Details) Summary() string {
 }
 
 // Run observes SPF and returns a Feature.
-func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
+func (p *Probe) Run(ctx context.Context, domain string) []signals.Feature {
+	return []signals.Feature{p.runOne(ctx, domain)}
+}
+
+func (p *Probe) runOne(ctx context.Context, domain string) signals.Feature {
 	res, err := p.DNS.LookupTXT(ctx, domain)
 	sig := signals.Signal{
 		Source: signals.SourceDNSTxt,
