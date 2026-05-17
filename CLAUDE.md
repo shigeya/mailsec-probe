@@ -32,7 +32,7 @@ go test -tags integration ./...   # 実 DNS / 実 HTTPS 依存テスト
 - **Phase 2.5** — `--input` バッチ、TSV 出力、`--stats` 横断統計
 
 **計画中**:
-- **Phase 3.0** — DNSSEC chain validation を `github.com/shigeya/dnsdata` (別 module で co-develop) 経由で導入。BOGUS / INSECURE を区別。`--dnssec-mode ad-only` で旧挙動を保存。詳細は [DESIGN.md §16](DESIGN.md#16-phase-30-計画--dnssec-validation-via-dnsdata)
+- **Phase 3.0** — DNSSEC chain validation を `github.com/shigeya/dnsdata-go` (別 module で co-develop) 経由で導入。BOGUS / INSECURE を区別。`--dnssec-mode ad-only` で旧挙動を保存。詳細は [DESIGN.md §16](DESIGN.md#16-phase-30-計画--dnssec-validation-via-dnsdata-go)
 
 **含まない (Phase 3.0 までは)** — BIMI VMC 検証 / TLSA Usage 0/2 (trust-anchor) の厳密検証 / メール送信。
 迷ったらまず観測の中立性を優先し TODO コメントで追跡。
@@ -103,7 +103,7 @@ Conventional Commits 準拠: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `ch
 - YAML: `gopkg.in/yaml.v3`
 - CLI: `cobra` + `viper`
 - 並行制御: `golang.org/x/sync/errgroup`
-- DNSSEC 検証 (Phase 3.0): `github.com/shigeya/dnsdata` (別 module、co-develop)
+- DNSSEC 検証 (Phase 3.0): `github.com/shigeya/dnsdata-go` (別 module、co-develop)
 - 単一バイナリ、CGO 不要
 
 ## DKIM Selector Strategy
