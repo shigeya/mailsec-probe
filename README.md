@@ -4,8 +4,6 @@ Observe a domain's mail-security DNS records (SPF / DMARC / DKIM / MX /
 MTA-STS / TLS-RPT / BIMI / DNSSEC) from the outside, and report each
 feature's status, confidence, and structured details.
 
-
-
 ## Why
 
 > "Does this domain enforce DMARC? Are they on MTA-STS yet? Which DKIM

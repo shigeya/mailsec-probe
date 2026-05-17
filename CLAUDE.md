@@ -8,7 +8,6 @@ Go 製 CLI ツール。指定したドメインのメールセキュリティ関
 
 モジュールパス: `github.com/shigeya/mailsec-probe`
 
-
 詳細設計は [DESIGN.md](DESIGN.md) を参照。
 
 ## Build & Test
@@ -69,7 +68,7 @@ go test -tags integration ./...   # 実 DNS / 実 HTTPS 依存テスト
 Conventional Commits 準拠: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`, `perf:`, `ci:`
 機能単位で分割。各コミット前に `go build ./... && go test ./...` を実行。
 
-## Design Principles ( と共通)
+## Design Principles
 
 1. **観測と判定の分離** — 観測器は中立的な Signal を生成、判定はルール/分類器
 2. **非侵襲デフォルト** — DNS 問い合わせと HTTPS GET のみ。SMTP は `--active`

@@ -6,14 +6,11 @@
 公開ポリシ (MTA-STS) を**外部観測**し、各機能の有無・健全性・確信度を
 構造化された結果として返す Go 製 CLI ツール。
 
-
-
-
 - モジュールパス案: `github.com/shigeya/mailsec-probe`
 - バイナリ名: `mailsec-probe`
 - 言語: Go 1.22+ / 単一バイナリ / CGO 不要
 
-## 2. 設計思想 ( と共通)
+## 2. 設計思想
 
 1. **観測と判定の分離** — 観測器は中立的な Signal を生成、判定はルールエンジン
 2. **非侵襲デフォルト** — DNS 問い合わせと HTTPS GET のみ。SMTP 接続は `--active`
@@ -237,7 +234,7 @@ rules:
 - DNS クライアントは共通のキャッシュ付きラッパ (`internal/probe/dns`)
   を全機能で共有
 
-## 10. エシカル考慮 ( と同様)
+## 10. エシカル考慮
 
 - **User-Agent**: HTTPS GET 時は `mailsec-probe/<ver>` を名乗る
 - **robots.txt**: `--respect-robots=true` (デフォルト)
