@@ -91,6 +91,19 @@ func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
 	}
 	sort.SliceStable(hosts, func(i, j int) bool { return hosts[i].Preference < hosts[j].Preference })
 
+	// RFC 7505: a single MX record of "0 ." advertises that the domain
+	// does not accept mail. Report this as absent with a clear reason.
+	if isNullMX(hosts) {
+		return signals.Feature{
+			Name:       name,
+			Status:     signals.StatusAbsent,
+			Confidence: 1.0,
+			Reasons:    []string{"null MX (RFC 7505): domain explicitly refuses mail"},
+			Details:    Details{Hosts: hosts},
+			Signals:    []signals.Signal{sig},
+		}
+	}
+
 	return signals.Feature{
 		Name:       name,
 		Status:     signals.StatusPresent,
@@ -99,4 +112,13 @@ func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
 		Details:    Details{Hosts: hosts},
 		Signals:    []signals.Signal{sig},
 	}
+}
+
+// isNullMX reports whether hosts is exactly the RFC 7505 null MX form.
+func isNullMX(hosts []Host) bool {
+	if len(hosts) != 1 {
+		return false
+	}
+	h := hosts[0]
+	return h.Preference == 0 && (h.Host == "" || h.Host == ".")
 }

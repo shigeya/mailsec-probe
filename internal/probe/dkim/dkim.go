@@ -199,13 +199,48 @@ func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
 		Keys:           keys,
 	}
 
+	// Count "live" vs "revoked" hits. A key with v=DKIM1 and an empty
+	// p= tag is an explicit revocation (RFC 6376 §3.6.1). Some
+	// operators publish such a record as a wildcard, which would
+	// otherwise look like "every selector is configured" — we treat
+	// those as ABSENT instead.
+	liveKeys := 0
+	for _, k := range keys {
+		if !k.Revoked {
+			liveKeys++
+		}
+	}
+
 	switch {
-	case len(found) > 0:
+	case liveKeys > 0:
+		liveSel := make([]string, 0, liveKeys)
+		for _, k := range keys {
+			if !k.Revoked {
+				liveSel = append(liveSel, k.Selector)
+			}
+		}
+		sort.Strings(liveSel)
 		return signals.Feature{
 			Name:       name,
 			Status:     signals.StatusPresent,
 			Confidence: 0.95,
-			Reasons:    []string{fmt.Sprintf("DKIM key(s) at: %s", strings.Join(found, ", "))},
+			Reasons:    []string{fmt.Sprintf("DKIM key(s) at: %s", strings.Join(liveSel, ", "))},
+			Details:    d,
+			Signals:    sigs,
+		}
+	case len(found) > 0 && liveKeys == 0:
+		// Every found record was a revocation. Distinguish a likely
+		// wildcard ("everything revoked, same record everywhere") from
+		// a targeted single-selector revocation.
+		reason := "all matched selectors return revoked DKIM keys (likely wildcard TXT)"
+		if len(found) <= 2 {
+			reason = "matched selector(s) return revoked DKIM keys (empty p=)"
+		}
+		return signals.Feature{
+			Name:       name,
+			Status:     signals.StatusAbsent,
+			Confidence: 0.9,
+			Reasons:    []string{reason},
 			Details:    d,
 			Signals:    sigs,
 		}

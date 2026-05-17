@@ -50,6 +50,31 @@ func TestRun_AbsentAllTried(t *testing.T) {
 	}
 }
 
+func TestRun_RevokedWildcard_IsAbsent(t *testing.T) {
+	// Some domains publish "v=DKIM1; p=" as a wildcard, which means
+	// every selector lookup matches a revoked key. Per RFC 6376, this
+	// is an explicit revocation and we report it as absent.
+	m := dnsclient.NewMock()
+	revoked := dnsclient.TXTResult{Records: []string{"v=DKIM1; p="}}
+	for _, sel := range []string{"default", "google", "selector1"} {
+		m.TXT[sel+"._domainkey.example.com"] = revoked
+	}
+	p := newProbeWithSelectors(t, m, []string{"default", "google", "selector1"})
+	f := p.Run(context.Background(), "example.com")
+	if f.Status != signals.StatusAbsent {
+		t.Fatalf("status = %s, want absent (all revoked)", f.Status)
+	}
+	d := f.Details.(Details)
+	if len(d.SelectorsFound) != 3 {
+		t.Fatalf("selectors_found = %#v", d.SelectorsFound)
+	}
+	for _, k := range d.Keys {
+		if !k.Revoked {
+			t.Fatalf("expected all keys to be marked revoked: %+v", k)
+		}
+	}
+}
+
 func TestRun_AcceptsRecordWithoutVTag(t *testing.T) {
 	m := dnsclient.NewMock()
 	m.TXT["selector1._domainkey.example.com"] = dnsclient.TXTResult{
