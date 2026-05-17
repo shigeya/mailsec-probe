@@ -32,6 +32,22 @@ type Details struct {
 	HasDS      bool `json:"has_ds"`
 }
 
+// Summary returns a short human description (used by the human formatter).
+// Returns empty string when no indicators are present; the formatter then
+// falls back to the verdict reason ("no DS in parent and no AD bit ...").
+func (d Details) Summary() string {
+	switch {
+	case d.HasDS && d.ADBitOnTXT:
+		return "DS + AD"
+	case d.HasDS:
+		return "DS only"
+	case d.ADBitOnTXT:
+		return "AD only"
+	default:
+		return ""
+	}
+}
+
 // Run observes DNSSEC indicators.
 //
 // We piggy-back a TXT query on the apex (where SPF lives anyway) to

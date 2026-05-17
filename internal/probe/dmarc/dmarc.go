@@ -4,6 +4,7 @@ package dmarc
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/shigeya/mailsec-probe/internal/probe/dnsclient"
 	"github.com/shigeya/mailsec-probe/internal/probe/txttag"
@@ -36,6 +37,21 @@ type Details struct {
 	ASPF             string `json:"aspf,omitempty"`              // aspf= (strict/relaxed)
 	ADKIM            string `json:"adkim,omitempty"`             // adkim=
 	Raw              string `json:"raw,omitempty"`
+}
+
+// Summary returns a short human description (used by the human formatter).
+func (d Details) Summary() string {
+	parts := []string{fmt.Sprintf("p=%s", emptyAs(d.Policy, "?"))}
+	if d.SubdomainPolicy != "" && d.SubdomainPolicy != d.Policy {
+		parts = append(parts, "sp="+d.SubdomainPolicy)
+	}
+	if d.Percent != "" && d.Percent != "100" {
+		parts = append(parts, "pct="+d.Percent)
+	}
+	if d.AggregateReports != "" {
+		parts = append(parts, "rua")
+	}
+	return strings.Join(parts, ", ")
 }
 
 // Run observes DMARC and returns a Feature.

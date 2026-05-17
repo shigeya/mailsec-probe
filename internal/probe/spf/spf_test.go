@@ -69,6 +69,22 @@ func TestRun_PlusAllIsMisconfigured(t *testing.T) {
 	}
 }
 
+func TestRun_RedirectOnly_NotMisconfigured(t *testing.T) {
+	m := dnsclient.NewMock()
+	m.TXT["example.com"] = dnsclient.TXTResult{
+		Records: []string{"v=spf1 redirect=_spf.parent.example"},
+	}
+	p := New(m, false)
+	f := p.Run(context.Background(), "example.com")
+	if f.Status != signals.StatusPresent {
+		t.Fatalf("status = %s, want present (redirect delegates policy)", f.Status)
+	}
+	d := f.Details.(Details)
+	if d.Redirect != "_spf.parent.example" {
+		t.Fatalf("redirect = %q", d.Redirect)
+	}
+}
+
 func TestRun_RedirectMechanism(t *testing.T) {
 	m := dnsclient.NewMock()
 	m.TXT["example.com"] = dnsclient.TXTResult{

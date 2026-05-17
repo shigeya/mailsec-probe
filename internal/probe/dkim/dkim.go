@@ -90,6 +90,25 @@ type Details struct {
 	Keys           []Key    `json:"keys,omitempty"`
 }
 
+// Summary returns a short human description (used by the human formatter).
+func (d Details) Summary() string {
+	if len(d.SelectorsFound) == 0 {
+		return fmt.Sprintf("0/%d selectors", len(d.SelectorsTried))
+	}
+	// Show selectors with key size for the first one if we have it.
+	tag := strings.Join(d.SelectorsFound, ", ")
+	if len(d.Keys) > 0 {
+		k := d.Keys[0]
+		if k.KeySize > 0 {
+			return fmt.Sprintf("%s (%s %d-bit)", tag, k.KeyType, k.KeySize)
+		}
+		if k.KeyType != "" {
+			return fmt.Sprintf("%s (%s)", tag, k.KeyType)
+		}
+	}
+	return tag
+}
+
 // Run probes every configured selector and returns a Feature.
 func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
 	conc := p.Concurrency

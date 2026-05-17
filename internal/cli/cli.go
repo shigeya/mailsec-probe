@@ -30,14 +30,36 @@ import (
 // Version is overwritten at build time via -ldflags.
 var Version = "0.1.0-dev"
 
+// Exit codes:
+//
+//	0 — every domain was observed (regardless of feature presence)
+//	1 — at least one domain failed observation outright
+//	2 — invalid flags or arguments
+const (
+	// exitOK = 0 is implicit (no os.Exit call).
+	exitObservationErr = 1
+	exitUsageErr       = 2
+)
+
 // Execute runs the root command and exits with the appropriate code.
 func Execute() {
 	root := newRoot()
-	if err := root.Execute(); err != nil {
+	err := root.Execute()
+	if err != nil {
+		if ec, ok := err.(*exitCodeErr); ok {
+			os.Exit(ec.code)
+		}
 		fmt.Fprintf(os.Stderr, "mailsec-probe: %v\n", err)
-		os.Exit(2)
+		os.Exit(exitUsageErr)
 	}
 }
+
+// exitCodeErr is returned by RunE to request a specific non-zero exit
+// without printing an error message (the formatted report was already
+// written to stdout).
+type exitCodeErr struct{ code int }
+
+func (e *exitCodeErr) Error() string { return fmt.Sprintf("exit %d", e.code) }
 
 type rootOpts struct {
 	outputFmt       string
@@ -126,12 +148,42 @@ func run(ctx context.Context, opts *rootOpts, domains []string) error {
 
 	switch opts.outputFmt {
 	case "json":
-		return output.WriteJSON(os.Stdout, reports)
+		if err := output.WriteJSON(os.Stdout, reports); err != nil {
+			return err
+		}
 	case "human", "":
-		return output.WriteHuman(os.Stdout, reports)
+		if err := output.WriteHuman(os.Stdout, reports); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("unknown output format %q (want human|json)", opts.outputFmt)
 	}
+
+	if anyDomainFailed(reports) {
+		return &exitCodeErr{code: exitObservationErr}
+	}
+	return nil
+}
+
+// anyDomainFailed reports whether any report represents a complete
+// observation failure (every feature unknown, or a top-level error).
+func anyDomainFailed(reports []signals.Report) bool {
+	for _, r := range reports {
+		if len(r.Errors) > 0 || len(r.Features) == 0 {
+			return true
+		}
+		allUnknown := true
+		for _, f := range r.Features {
+			if f.Status != signals.StatusUnknown {
+				allUnknown = false
+				break
+			}
+		}
+		if allUnknown {
+			return true
+		}
+	}
+	return false
 }
 
 func buildProbes(dnsCli dnsclient.Client, opts *rootOpts) ([]classifier.Probe, error) {

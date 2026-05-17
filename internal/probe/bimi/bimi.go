@@ -8,6 +8,7 @@ package bimi
 
 import (
 	"context"
+	"strings"
 
 	"github.com/shigeya/mailsec-probe/internal/probe/dnsclient"
 	"github.com/shigeya/mailsec-probe/internal/probe/txttag"
@@ -36,6 +37,21 @@ type Details struct {
 	LogoURI string `json:"logo_uri,omitempty"` // l=
 	VMCURI  string `json:"vmc_uri,omitempty"`  // a=
 	Raw     string `json:"raw,omitempty"`
+}
+
+// Summary returns a short human description (used by the human formatter).
+func (d Details) Summary() string {
+	parts := []string{}
+	if d.LogoURI != "" {
+		parts = append(parts, "logo="+d.LogoURI)
+	}
+	if d.VMCURI != "" {
+		parts = append(parts, "vmc=yes")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, ", ")
 }
 
 // Run observes BIMI and returns a Feature.

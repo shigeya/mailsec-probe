@@ -34,6 +34,26 @@ type Host struct {
 	Host       string `json:"host"`
 }
 
+// Summary returns a short human description (used by the human formatter).
+func (d Details) Summary() string {
+	if len(d.Hosts) == 0 {
+		return "no MX"
+	}
+	switch len(d.Hosts) {
+	case 1:
+		return fmt.Sprintf("%d %s", d.Hosts[0].Preference, d.Hosts[0].Host)
+	case 2:
+		return fmt.Sprintf("%d %s, %d %s",
+			d.Hosts[0].Preference, d.Hosts[0].Host,
+			d.Hosts[1].Preference, d.Hosts[1].Host)
+	default:
+		return fmt.Sprintf("%d %s, %d %s, +%d more",
+			d.Hosts[0].Preference, d.Hosts[0].Host,
+			d.Hosts[1].Preference, d.Hosts[1].Host,
+			len(d.Hosts)-2)
+	}
+}
+
 // Run observes MX records and returns a Feature.
 func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
 	res, err := p.DNS.LookupMX(ctx, domain)

@@ -75,6 +75,24 @@ type Details struct {
 	Policy     Policy `json:"policy,omitempty"`
 }
 
+// Summary returns a short human description (used by the human formatter).
+func (d Details) Summary() string {
+	parts := []string{}
+	if d.Policy.Mode != "" {
+		parts = append(parts, "mode="+d.Policy.Mode)
+	}
+	if d.Policy.MaxAge != "" {
+		parts = append(parts, "max_age="+d.Policy.MaxAge)
+	}
+	if len(d.Policy.MX) > 0 {
+		parts = append(parts, fmt.Sprintf("%d mx pattern(s)", len(d.Policy.MX)))
+	}
+	if d.HTTPStatus != 0 && d.HTTPStatus != 200 {
+		parts = append(parts, fmt.Sprintf("HTTP %d", d.HTTPStatus))
+	}
+	return strings.Join(parts, ", ")
+}
+
 // Run observes both the DNS marker and the HTTPS policy.
 func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
 	d := Details{}

@@ -57,6 +57,20 @@ type Details struct {
 	Raw        string    `json:"raw,omitempty"`
 }
 
+// Summary returns a short human description (used by the human formatter).
+func (d Details) Summary() string {
+	parts := []string{fmt.Sprintf("qualifier=%s", d.Qualifier)}
+	switch {
+	case d.Redirect != "":
+		parts = append(parts, "redirect="+d.Redirect)
+	case len(d.Includes) == 1:
+		parts = append(parts, "include="+d.Includes[0])
+	case len(d.Includes) > 1:
+		parts = append(parts, fmt.Sprintf("%d includes", len(d.Includes)))
+	}
+	return strings.Join(parts, ", ")
+}
+
 // Run observes SPF and returns a Feature.
 func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
 	res, err := p.DNS.LookupTXT(ctx, domain)
@@ -113,8 +127,14 @@ func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
 		status = signals.StatusMisconfigured
 		reasons = append(reasons, "+all permits any sender (no real protection)")
 	case QualifierMissing:
-		status = signals.StatusMisconfigured
-		reasons = append(reasons, "no 'all' mechanism")
+		// "redirect=" delegates the policy to another domain, so the
+		// absence of an "all" mechanism is expected and valid (RFC 7208 §6.1).
+		if d.Redirect == "" {
+			status = signals.StatusMisconfigured
+			reasons = append(reasons, "no 'all' mechanism and no redirect modifier")
+		} else {
+			reasons = append(reasons, "policy delegated via redirect="+d.Redirect)
+		}
 	}
 
 	return signals.Feature{

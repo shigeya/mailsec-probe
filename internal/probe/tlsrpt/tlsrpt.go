@@ -34,6 +34,14 @@ type Details struct {
 	Raw           string `json:"raw,omitempty"`
 }
 
+// Summary returns a short human description (used by the human formatter).
+func (d Details) Summary() string {
+	if d.ReportingURIs == "" {
+		return ""
+	}
+	return "rua=" + d.ReportingURIs
+}
+
 // Run observes TLS-RPT and returns a Feature.
 func (p *Probe) Run(ctx context.Context, domain string) signals.Feature {
 	target := "_smtp._tls." + domain

@@ -8,6 +8,14 @@ import (
 	"github.com/shigeya/mailsec-probe/internal/signals"
 )
 
+// Summarizer is implemented by per-probe Details types to provide a
+// one-line, human-friendly summary that goes beyond the verdict reason.
+// If a Details type does not implement Summarizer, the first reason is
+// shown instead.
+type Summarizer interface {
+	Summary() string
+}
+
 // WriteHuman emits a human-readable summary for each report.
 func WriteHuman(w io.Writer, reports []signals.Report) error {
 	for idx, rep := range reports {
@@ -36,8 +44,18 @@ func WriteHuman(w io.Writer, reports []signals.Report) error {
 	return nil
 }
 
-// primaryDetail returns a one-line summary for a Feature row.
+// primaryDetail returns a one-line summary for a Feature row. The
+// Summarizer interface is preferred; otherwise we fall back to the
+// first verdict reason.
 func primaryDetail(f signals.Feature) string {
+	if s, ok := f.Details.(Summarizer); ok {
+		if line := s.Summary(); line != "" {
+			if len(f.Reasons) > 0 && f.Status != signals.StatusPresent {
+				return f.Reasons[0] + "  |  " + line
+			}
+			return line
+		}
+	}
 	if len(f.Reasons) > 0 {
 		return f.Reasons[0]
 	}
