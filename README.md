@@ -150,6 +150,18 @@ probes  ->  signals (neutral observations)  ->  classifier  ->  Feature{status, 
 Probes never make value judgments; the classifier turns signals into
 features.
 
+## Testing
+
+```bash
+go test ./...                            # unit + golden tests (no network)
+go test -tags integration ./...          # also exercises real DNS / HTTPS
+```
+
+The integration tests query a small set of well-known domains
+(google.com, cloudflare.com, example.com) and assert the *shape* of
+their mail-security setup rather than exact values, so they tolerate
+the upstream operators rotating records.
+
 ## Phase
 
 Currently **Phase 1.0 MVP**. Out of scope for this phase:
