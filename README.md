@@ -292,3 +292,7 @@ Out of scope:
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Acknowledgement
+
+Designed and coded with Claude Opus 4.7
