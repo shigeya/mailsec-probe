@@ -24,30 +24,34 @@ go test -tags integration ./...   # 実 DNS / 実 HTTPS 依存テスト
 
 ## Phase Scope
 
-現在 Phase 1.0 (MVP)。
+現在 Phase 2.5 完了。
 
-**含む** — SPF / DMARC / DKIM (固定 selector) / MX / MTA-STS / TLS-RPT / BIMI / DNSSEC (AD ビットのみ)、json/human 出力、ゴールデンテスト。
+**実装済み**:
+- **Phase 1.0** — SPF / DMARC / DKIM (固定 selector) / MX / MTA-STS / TLS-RPT / BIMI / DNSSEC (AD ビットのみ)、json/human 出力、ゴールデンテスト
+- **Phase 1.5** — SPF→DKIM selector 推定、MTA-STS↔MX 一致性、DMARC rua HTTPS 到達性
+- **Phase 2.0** — `--active`: SMTP STARTTLS + 証明書観察 + DANE/TLSA 照合 (mtatls probe)
+- **Phase 2.5** — `--input` バッチ、TSV 出力、`--stats` 横断統計
 
-**含まない** — SMTP 接続 / STARTTLS / DANE-TLSA / SPF→DKIM selector 推定 / DNSKEY 自前検証 / VMC 検証 / バッチ入力 / TSV 出力。
-迷ったら MVP を優先し TODO コメントで追跡。
+**含まない** — DNSKEY 自前検証 / BIMI VMC 検証 / TLSA Usage 0/2 (trust-anchor) の厳密検証 / メール送信。
+迷ったらまず観測の中立性を優先し TODO コメントで追跡。
 
 ## Directory Layout
 
 - `cmd/mailsec-probe/` — エントリポイント
-- `internal/cli/` — cobra コマンド定義
+- `internal/cli/` — cobra コマンド定義 + `--input` パーサ
 - `internal/probe/` — 観測器
-  - `dnsclient/` — 共通 DNS クライアント (interface + miekg/dns 実装)
+  - `dnsclient/` — 共通 DNS クライアント (TXT / MX / TLSA / DS)
+  - `httpfetcher/` — 共有 HTTPS Fetcher (Get + Head)
   - `spf/` `dmarc/` `dkim/` `mx/` `mtasts/` `tlsrpt/` `bimi/` `dnssec/`
+  - `mtatls/` — active 専用 (STARTTLS + DANE)
 - `internal/signals/` — Signal / Feature / Report 型
-- `internal/rules/` — YAML ルール定義 (将来の判定ロジック外部化用)
-- `internal/classifier/` — 観測結果から Feature を作る集約層
-- `internal/output/` — フォーマッタ (json, human)
+- `internal/classifier/` — 観測結果から Feature を作る集約層 (probe を flatten)
+- `internal/output/` — フォーマッタ (json, human, tsv) + stats 集計
 - `rules/` — 埋め込み YAML (`go:embed`)
-  - `dkim_selectors.yaml`
-- `testdata/` — fixtures, golden テスト
-  - `domains/<name>/dns.json`
-  - `domains/<name>/golden.json`
-- `docs/` — ARCHITECTURE.md, DKIM_SELECTORS.md など
+  - `dkim_selectors.yaml` — 固定 selector 集合
+  - `dkim_selector_inference.yaml` — SPF→selector マッピング
+- `testdata/` — 含めるなら fixtures, golden
+- `docs/` — ARCHITECTURE.md, DKIM_SELECTORS.md
 
 ## Coding Conventions
 

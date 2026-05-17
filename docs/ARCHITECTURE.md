@@ -12,25 +12,29 @@ the bigger product story see [DESIGN.md](../DESIGN.md); for usage see
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │       internal/cli           │  cobra root, flags, exit codes
+              │       internal/cli           │  cobra root, --input, flags, exit codes
               └──────────────┬───────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │   internal/classifier        │  fan-out probes per domain
+              │   internal/classifier        │  fan-out probes per domain (flatten []Feature)
               └──────────────┬───────────────┘
                   │          │          │
-        ┌─────────▼┐   ┌─────▼────┐ ┌──▼─────┐
-        │ spf      │   │ dmarc    │ │ dkim   │  ← internal/probe/*
-        │ mx       │   │ mta-sts  │ │ bimi   │
-        │ tls-rpt  │   │ dnssec   │ │        │
-        └─────┬────┘   └─────┬────┘ └───┬────┘
-              │              │          │
-              └──────────────┼──────────┘
+        ┌─────────▼─┐  ┌─────▼─────┐ ┌──▼──────┐
+        │ spf       │  │ dmarc     │ │ dkim    │  ← passive probes
+        │ mx        │  │ mta-sts   │ │ bimi    │     internal/probe/*
+        │ tls-rpt   │  │ dnssec    │ │ mtatls* │
+        └─────┬─────┘  └─────┬─────┘ └────┬────┘
+              │              │            │
+              └──────────────┼────────────┘
                              │
               ┌──────────────▼───────────────┐
-              │  internal/probe/dnsclient    │  miekg/dns wrapper + Mock
-              │  net/http (mta-sts only)     │
+              │  internal/probe/dnsclient    │  miekg/dns + UDP→TCP + TLSA + Mock
+              │  internal/probe/httpfetcher  │  HTTPS Get + Head (mtasts + dmarc)
+              │  net/smtp + crypto/tls       │  (mtatls only, with --active)
               └──────────────────────────────┘
+
+  * mtatls is an active probe — only wired in when --active is set.
+    It emits TWO features per run: "starttls" and "dane".
 ```
 
 Output is produced by `internal/output` (`json.go`, `human.go`) and
@@ -93,9 +97,13 @@ A `Probe` is anything that satisfies:
 ```go
 type Probe interface {
     Name() string
-    Run(ctx context.Context, domain string) signals.Feature
+    Run(ctx context.Context, domain string) []signals.Feature
 }
 ```
+
+Most probes return a single-element slice. The active `mtatls` probe
+is the canonical example of a multi-feature return: one SMTP session
+per MX produces both a `starttls` and a `dane` feature.
 
 To add one (let's call it `foo`):
 
@@ -122,7 +130,7 @@ canonical pattern).
 
 `internal/probe/dnsclient` wraps `github.com/miekg/dns` with:
 
-- a small interface (`LookupTXT`, `LookupMX`, `HasDS`)
+- a small interface (`LookupTXT`, `LookupMX`, `LookupTLSA`, `HasDS`)
 - per-server failover
 - automatic UDP → TCP fallback when the server sets the TC bit
 - EDNS0 with DO=1 plus an explicit AD-bit request on every query, so
@@ -131,25 +139,44 @@ canonical pattern).
 - a `Mock` implementation in the same package, used by every probe's
   unit tests
 
-The MTA-STS probe additionally needs HTTPS; it accepts an
-`HTTPFetcher` interface that tests can stub.
+`internal/probe/httpfetcher` provides a tiny `Fetcher` interface
+(`Get` + `Head`) backed by `net/http`. `mtasts` uses `Get` for the
+policy file; `dmarc` uses `Head` for `rua=` reachability checks.
+
+The active `mtatls` probe additionally uses `net/smtp` and `crypto/tls`
+through its own `Dialer` interface so tests can stub the SMTP/TLS
+handshake without a real socket.
 
 ## Output
 
 ```
 internal/output/json.go   → encoding/json with 2-space indent
 internal/output/human.go  → tree-style ASCII summary
+internal/output/tsv.go    → tabular "domain\tfeature\tstatus\tconfidence\treason"
+internal/output/stats.go  → cross-domain aggregation (--stats)
 ```
 
 The human formatter inspects each `Feature.Details` for the
 `output.Summarizer` interface (a single `Summary() string` method) and
 falls back to the first reason when no summary is provided.
 
+`Compute(reports)` produces a `Stats` value keyed by feature name;
+`--stats` causes the chosen formatter to append the stats block:
+
+- human: ASCII table after the per-domain trees
+- tsv: a `# stats` separator line followed by a second TSV table
+- json: top-level shape becomes `{"reports": [...], "stats": {...}}`
+  (without `--stats` the shape stays an array or single object,
+  preserving backward compatibility)
+
 ## Concurrency
 
 - The CLI fans out across domains using `errgroup` with `--concurrency`.
 - Within a domain, every probe runs in parallel.
-- DKIM internally fans out across its selector list (`SetLimit(8)`).
+- DKIM internally fans out across its selector list (`SetLimit(8)`)
+  and performs an additional SPF lookup for selector inference.
+- The active `mtatls` probe fans out across MX hosts (`SetLimit(4)`)
+  for both the SMTP handshake and the per-host TLSA lookup.
 - All slices are sized up front to avoid concurrent appends.
 
 ## Errors and exit codes

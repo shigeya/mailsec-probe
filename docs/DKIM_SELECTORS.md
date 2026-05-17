@@ -15,13 +15,15 @@ and so cannot know the selector authoritatively.
 
 Three workarounds exist:
 
-| Strategy | Coverage | Cost |
-|---------|----------|------|
-| **Probe a curated default list** (Phase 1.0) | Catches the long tail of mainstream providers | Cheap; one DNS lookup per selector |
-| **Infer from SPF includes** (Phase 1.5) | Pulls in provider-specific selectors when the domain uses a recognisable include | One extra parse step |
-| **Read mail headers** | Authoritative, but requires receiving mail from the target | Out of scope (would no longer be observation-only) |
+| Strategy | Status | Coverage | Cost |
+|----------|--------|----------|------|
+| **Probe a curated default list** | Phase 1.0 ✓ | Catches the long tail of mainstream providers | Cheap; one DNS lookup per selector |
+| **Infer from SPF includes** | Phase 1.5 ✓ | Pulls in provider-specific selectors when the domain uses a recognisable include | One extra TXT lookup per domain |
+| **Read mail headers** | Out of scope | Authoritative, but requires receiving mail from the target | Would no longer be observation-only |
 
-`mailsec-probe` is currently at Phase 1.0 — a curated default list.
+Both Phase 1.0 and Phase 1.5 are now implemented. Disable inference
+with `--no-spf-inference` when you want the deterministic fixed-list
+behaviour for tests or comparisons.
 
 ## The default list
 
@@ -115,21 +117,35 @@ selectors:
 
 User-supplied selectors are de-duplicated against the base list.
 
-## Phase 1.5: SPF-driven inference
+## SPF-driven inference (Phase 1.5, implemented)
 
-The planned enhancement parses the SPF record at the apex and adds
-selectors implied by recognised includes:
+The probe parses the SPF record at the apex and adds selectors
+implied by recognised `include:` / `redirect=` targets. The mapping
+lives in [`rules/dkim_selector_inference.yaml`](../rules/dkim_selector_inference.yaml)
+and is embedded into the binary at build time.
 
-| SPF token observed | Selectors to add |
-|--------------------|------------------|
-| `include:_spf.google.com` | `google`, plus recent Google date-style selectors |
-| `include:spf.protection.outlook.com` | `selector1-<tenantid>`, `selector2-<tenantid>` |
-| `include:amazonses.com` | `<key>-<region>._domainkey` patterns (limited; per-tenant) |
-| `include:spf.messagingengine.com` (Fastmail) | `fm1`, `fm2`, `fm3` (already in default list) |
-| `include:mailgun.org` | `mg`, `mta`, `krs` |
+Currently mapped providers (see the YAML for the full per-provider
+selector list):
 
-The exact mapping table will live alongside the existing YAML and be
-documented here when Phase 1.5 lands.
+| SPF token observed (substring) | Provider |
+|--------------------------------|----------|
+| `_spf.google.com` | Google Workspace |
+| `spf.protection.outlook.com` | Microsoft 365 / Outlook |
+| `amazonses.com` | Amazon SES |
+| `mailgun.org` | Mailgun |
+| `sendgrid.net` | SendGrid |
+| `spf.mandrillapp.com` | Mandrill / Mailchimp |
+| `spf.mtasv.net` | Postmark |
+| `spf.messagingengine.com` | Fastmail |
+| `_spf.protonmail.ch` | ProtonMail |
+| `zohomail.com` | Zoho |
+| `_spf.mlsend.com`, `_spf.mailerlite.com` | MailerSend / MailerLite |
+
+Inferred selectors are recorded in the DKIM Feature's
+`Details.SelectorsInferred` so JSON consumers can see exactly which
+inference rule fired. Inference adds one extra TXT lookup per domain
+(the SPF probe does its own TXT query in parallel; a shared cache is
+a future optimisation).
 
 ## What we deliberately don't do
 

@@ -116,7 +116,9 @@ The YAML format mirrors `rules/dkim_selectors.yaml`.
 ## Flags
 
 ```
--o, --output string                 output format: human|json  (default "human")
+-o, --output string                 output format: human|json|tsv  (default "human")
+    --input string                  read additional domains from file (one per line, # comments); use "-" for stdin
+    --stats                         append cross-domain statistics to the output
     --dns-server string             DNS server (host or host:port). Default: system resolver
     --dkim-selector strings         additional DKIM selector to probe (repeatable)
     --dkim-selectors-file string    override embedded DKIM selector list
@@ -131,6 +133,36 @@ The YAML format mirrors `rules/dkim_selectors.yaml`.
     --include-raw                   include raw TXT/HTTPS bodies in output
 -v, --verbose count                 -v info, -vv debug
 ```
+
+## Batch scanning, TSV, and stats
+
+For sweeping a list of domains, pass `--input <file>`. The file is one
+domain per line; blank lines and `#` comments are ignored. Use `-` to
+read from stdin. Positional arguments and `--input` are merged with
+duplicates removed.
+
+```bash
+# scan a list and emit TSV (pipe to awk, jq, etc.)
+mailsec-probe --input top500.txt -o tsv > scan.tsv
+
+# add cross-domain stats at the end
+mailsec-probe --input top500.txt --stats
+
+# combine stdin + JSON wrap
+cat domains.txt | mailsec-probe --input - -o json --stats > scan.json
+```
+
+TSV columns:
+
+```
+domain  feature  status  confidence  reason
+```
+
+`--stats` appends a per-feature summary (present / absent / misconfigured /
+unknown counts and percentages). With `-o json --stats` the top-level
+shape becomes `{"reports": [...], "stats": {...}}`; without `--stats`
+the JSON shape is unchanged from earlier versions (a single object for
+one domain, an array for many).
 
 ## Active mode (`--active`)
 
@@ -217,7 +249,16 @@ the upstream operators rotating records.
 
 ## Phase
 
-Currently **Phase 2.0**. Phase 2.0 adds the `--active` SMTP probe set:
+Currently **Phase 2.5**. Phase 2.5 adds:
+
+- **Batch input** — `--input <file>` (one domain per line; `-` for stdin).
+  Merged with positional args, duplicates removed.
+- **TSV output** — `--output tsv`. One row per (domain, feature).
+- **Cross-domain stats** — `--stats` appends a per-feature summary
+  (present / absent / misconfigured / unknown). With `-o json --stats`
+  the JSON shape becomes `{"reports": [...], "stats": {...}}`.
+
+Phase 2.0 adds the `--active` SMTP probe set:
 
 - **STARTTLS** — connect to each MX on :25, EHLO, STARTTLS, observe
   TLS version and certificate chain
@@ -244,7 +285,6 @@ Phase 1.5 adds:
 Out of scope:
 
 - On-the-wire DNSKEY/DS chain validation
-- Batch input (`--input domains.txt`) and TSV output (Phase 2.5)
 - BIMI VMC (Verified Mark Certificate) validation
 - TLSA Usage 0/2 (trust-anchor) semantics — Phase 2.0 validates Usage 3
   (DANE-EE) precisely; trust-anchor records are observed but treated
