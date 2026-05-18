@@ -13,6 +13,10 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/shigeya/dnsdata-go/resolver/auth"
+	"github.com/shigeya/dnsdata-go/resolver/doh"
+	"github.com/shigeya/dnsdata-go/verifier"
+
 	"github.com/shigeya/mailsec-probe/internal/classifier"
 	"github.com/shigeya/mailsec-probe/internal/output"
 	"github.com/shigeya/mailsec-probe/internal/probe/bimi"
@@ -63,23 +67,25 @@ type exitCodeErr struct{ code int }
 func (e *exitCodeErr) Error() string { return fmt.Sprintf("exit %d", e.code) }
 
 type rootOpts struct {
-	outputFmt      string
-	color          string
-	dnsServer      string
-	dkimSelectors  []string
-	dkimSelFile    string
-	noSPFInference bool
-	noRUACheck     bool
-	active         bool
-	smtpPort       int
-	smtpTimeout    time.Duration
-	ehloName       string
-	inputFile      string
-	stats          bool
-	timeout        time.Duration
-	concurrency    int
-	includeRaw     bool
-	verbose        int
+	outputFmt          string
+	color              string
+	dnsServer          string
+	dkimSelectors      []string
+	dkimSelFile        string
+	noSPFInference     bool
+	noRUACheck         bool
+	active             bool
+	smtpPort           int
+	smtpTimeout        time.Duration
+	ehloName           string
+	inputFile          string
+	stats              bool
+	timeout            time.Duration
+	concurrency        int
+	includeRaw         bool
+	verbose            int
+	dnssecMode         string
+	dnssecDOHProviders []string
 }
 
 func newRoot() *cobra.Command {
@@ -91,6 +97,7 @@ func newRoot() *cobra.Command {
 		smtpPort:    25,
 		smtpTimeout: 10 * time.Second,
 		ehloName:    "mailsec-probe.local",
+		dnssecMode:  string(dnssec.ModeADOnly),
 	}
 
 	cmd := &cobra.Command{
@@ -124,6 +131,8 @@ func newRoot() *cobra.Command {
 	pf.IntVar(&opts.concurrency, "concurrency", opts.concurrency, "max parallel domains")
 	pf.BoolVar(&opts.includeRaw, "include-raw", false, "include raw TXT/HTTPS bodies in the output")
 	pf.CountVarP(&opts.verbose, "verbose", "v", "increase verbosity (-v info, -vv debug)")
+	pf.StringVar(&opts.dnssecMode, "dnssec-mode", opts.dnssecMode, "DNSSEC strategy: ad-only|validate")
+	pf.StringSliceVar(&opts.dnssecDOHProviders, "dnssec-doh-provider", nil, "DoH provider URL for --dnssec-mode validate (repeatable; default: Google, Cloudflare, Quad9)")
 
 	return cmd
 }
@@ -267,6 +276,11 @@ func buildProbes(dnsCli dnsclient.Client, opts *rootOpts) ([]classifier.Probe, e
 		dmarcProbe.EnableRUACheck = false
 	}
 
+	dnssecProbe, err := buildDNSSECProbe(dnsCli, opts)
+	if err != nil {
+		return nil, err
+	}
+
 	probes := []classifier.Probe{
 		spf.New(dnsCli, opts.includeRaw),
 		dmarcProbe,
@@ -275,7 +289,7 @@ func buildProbes(dnsCli dnsclient.Client, opts *rootOpts) ([]classifier.Probe, e
 		mtasts.New(dnsCli, opts.includeRaw),
 		tlsrpt.New(dnsCli, opts.includeRaw),
 		bimi.New(dnsCli, opts.includeRaw),
-		dnssec.New(dnsCli),
+		dnssecProbe,
 	}
 
 	if opts.active {
@@ -287,6 +301,52 @@ func buildProbes(dnsCli dnsclient.Client, opts *rootOpts) ([]classifier.Probe, e
 	}
 
 	return probes, nil
+}
+
+// buildDNSSECProbe assembles the DNSSEC probe according to opts.
+//
+// ad-only mode: legacy AD-bit + DS observation via dnsCli.
+//
+// validate mode: chain validation via dnsdata-go. The resolver is the
+// authoritative-DNS client when --dns-server is set, else the DoH
+// client (Google → Cloudflare → Quad9 by default).
+func buildDNSSECProbe(dnsCli dnsclient.Client, opts *rootOpts) (*dnssec.Probe, error) {
+	mode := dnssec.Mode(opts.dnssecMode)
+	switch mode {
+	case dnssec.ModeADOnly, "":
+		return dnssec.New(dnsCli), nil
+	case dnssec.ModeValidate:
+		v, err := buildVerifier(opts)
+		if err != nil {
+			return nil, fmt.Errorf("build DNSSEC verifier: %w", err)
+		}
+		return dnssec.NewWithVerifier(dnsCli, v), nil
+	default:
+		return nil, fmt.Errorf("--dnssec-mode: unknown value %q (want ad-only|validate)", opts.dnssecMode)
+	}
+}
+
+// buildVerifier constructs a chain validator wired to the appropriate
+// transport. When --dns-server is set the authoritative-DNS client is
+// used (so the user's choice of resolver round-trips cleanly); else the
+// DoH client is used with the configured (or default) provider list.
+func buildVerifier(opts *rootOpts) (*verifier.Verifier, error) {
+	var resolver verifier.Resolver
+	if opts.dnsServer != "" {
+		c := auth.NewClient(
+			auth.WithServers(opts.dnsServer),
+			auth.WithTimeout(opts.timeout),
+		)
+		resolver = verifier.ResolverFunc(c.Resolve)
+	} else {
+		dohOpts := []doh.Option{}
+		if len(opts.dnssecDOHProviders) > 0 {
+			dohOpts = append(dohOpts, doh.WithProviders(opts.dnssecDOHProviders...))
+		}
+		c := doh.NewClient(dohOpts...)
+		resolver = verifier.ResolverFunc(c.Resolve)
+	}
+	return verifier.NewVerifier(verifier.WithResolver(resolver))
 }
 
 // mergedAsExtras is a tiny adapter: dkim.New treats its second arg as
