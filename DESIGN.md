@@ -301,7 +301,7 @@ example.jp
 | **1.5** | ✅ implemented | SPF → DKIM selector inference (`--no-spf-inference` to disable), DMARC `rua=` HTTPS HEAD reachability (`--no-rua-check`), consistency between MTA-STS policy `mx:` patterns and the actual MX |
 | **2.0** | ✅ implemented | `--active`: SMTP STARTTLS / certificate observation / PKIX verification / DANE/TLSA matching (Usage 3 = DANE-EE is strict; Usage 0/2 is observe-only) |
 | **2.5** | ✅ implemented | `--input <file>` batch mode (`-` for stdin), `--output tsv`, `--stats` cross-domain aggregation, ANSI color output (`--color auto\|always\|never`) |
-| **3.0** | 🛠 planned | Introduce DNSSEC chain validation via `github.com/shigeya/dnsdata-go` (separate module, co-developed). The Phase 1.0 AD-bit-only mode survives as `--dnssec-mode ad-only`. See §16 |
+| **3.0** | ✅ implemented | DNSSEC chain validation via `github.com/shigeya/dnsdata-go` v0.2.1. Default is `--dnssec-mode validate` (chain validation); the Phase 1.0 AD-bit-only mode survives as `--dnssec-mode ad-only`. See §16 |
 | **3.x** | candidates | See §17 below |
 
 ### Findings from Phase 1.5
@@ -475,7 +475,11 @@ across mailsec-probe via the Mock DNS / Mock DoH layer.
 |------|------------------|---------------------|
 | Week 1 | repo bootstrap; minimal `types/`, `wire/` + tests (`zone/` slipped to Week 2) | (none) |
 | Week 2 | `zone/`, full `dnssec/` (DNSKEY/RRSIG/DS/NSEC/anchors), `resolver/doh/` | (none) |
-| Week 3 | `verifier/chain.go` (chain walker), `v0.1.0` tag | implement `--dnssec-mode validate`, swap in `internal/probe/dnssec/`, regenerate goldens |
+| Week 3 | `verifier/chain.go` (chain walker), `v0.1.0` tag | (none) |
+| Week 4 | NSEC / NSEC3 negative-proof primitives, six-state Verdict, `v0.2.0` tag | (none) |
+| Week 5 | CNAME / DNAME chasing, `Result.Aliases` | (none) |
+| Week 6 | Wildcard-synthesised positive answers, `Result.Wildcard` | (none) |
+| Week 7 | `v0.2.1` — `resolver/{doh,auth}.Resolve` surfaces authority section so NSEC/NSEC3 proofs reach the verifier | `--dnssec-mode {ad-only,validate}` wired through `internal/probe/dnssec/`, default = `validate`, Verdict → Status mapping |
 
 For progress sharing and session ownership, see the `dnsdata-go` repo's CLAUDE.md / DESIGN.md.
 

@@ -97,7 +97,7 @@ func newRoot() *cobra.Command {
 		smtpPort:    25,
 		smtpTimeout: 10 * time.Second,
 		ehloName:    "mailsec-probe.local",
-		dnssecMode:  string(dnssec.ModeADOnly),
+		dnssecMode:  string(dnssec.ModeValidate),
 	}
 
 	cmd := &cobra.Command{
