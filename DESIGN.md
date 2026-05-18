@@ -301,7 +301,7 @@ example.jp
 | **1.5** | ✅ implemented | SPF → DKIM selector inference (`--no-spf-inference` to disable), DMARC `rua=` HTTPS HEAD reachability (`--no-rua-check`), consistency between MTA-STS policy `mx:` patterns and the actual MX |
 | **2.0** | ✅ implemented | `--active`: SMTP STARTTLS / certificate observation / PKIX verification / DANE/TLSA matching (Usage 3 = DANE-EE is strict; Usage 0/2 is observe-only) |
 | **2.5** | ✅ implemented | `--input <file>` batch mode (`-` for stdin), `--output tsv`, `--stats` cross-domain aggregation, ANSI color output (`--color auto\|always\|never`) |
-| **3.0** | ✅ implemented | DNSSEC chain validation via `github.com/shigeya/dnsdata-go` v0.2.1. Default is `--dnssec-mode validate` (chain validation); the Phase 1.0 AD-bit-only mode survives as `--dnssec-mode ad-only`. See §16 |
+| **3.0** | ✅ implemented | DNSSEC chain validation via `github.com/shigeya/dnsdata-go` v0.2.2. Default is `--dnssec-mode validate` (chain validation); the Phase 1.0 AD-bit-only mode survives as `--dnssec-mode ad-only`. See §16 |
 | **3.x** | candidates | See §17 below |
 
 ### Findings from Phase 1.5
@@ -480,6 +480,7 @@ across mailsec-probe via the Mock DNS / Mock DoH layer.
 | Week 5 | CNAME / DNAME chasing, `Result.Aliases` | (none) |
 | Week 6 | Wildcard-synthesised positive answers, `Result.Wildcard` | (none) |
 | Week 7 | `v0.2.1` — `resolver/{doh,auth}.Resolve` surfaces authority section so NSEC/NSEC3 proofs reach the verifier | `--dnssec-mode {ad-only,validate}` wired through `internal/probe/dnssec/`, default = `validate`, Verdict → Status mapping |
+| Week 7.1 | `v0.2.2` — `verifier/chain.go` no-cut descent fix (issue #1): chain walk no longer terminates at the first non-cut intermediate label, so signed names under multi-label TLDs (`*.ad.jp`, `*.co.jp`, `*.ne.jp`, …) validate as `Secure` instead of misreporting `Bogus` | bump dependency; `wide.ad.jp` and friends now report `DNSSEC PRESENT / secure` under the default `validate` mode |
 
 For progress sharing and session ownership, see the `dnsdata-go` repo's CLAUDE.md / DESIGN.md.
 

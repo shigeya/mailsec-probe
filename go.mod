@@ -4,7 +4,7 @@ go 1.26.3
 
 require (
 	github.com/miekg/dns v1.1.72
-	github.com/shigeya/dnsdata-go v0.2.1
+	github.com/shigeya/dnsdata-go v0.2.2
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sync v0.20.0
 	gopkg.in/yaml.v3 v3.0.1
