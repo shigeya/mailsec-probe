@@ -86,6 +86,7 @@ type rootOpts struct {
 	verbose            int
 	dnssecMode         string
 	dnssecDOHProviders []string
+	noDNSSECCache      bool
 }
 
 func newRoot() *cobra.Command {
@@ -133,6 +134,7 @@ func newRoot() *cobra.Command {
 	pf.CountVarP(&opts.verbose, "verbose", "v", "increase verbosity (-v info, -vv debug)")
 	pf.StringVar(&opts.dnssecMode, "dnssec-mode", opts.dnssecMode, "DNSSEC strategy: ad-only|validate")
 	pf.StringSliceVar(&opts.dnssecDOHProviders, "dnssec-doh-provider", nil, "DoH provider URL for --dnssec-mode validate (repeatable; default: Cloudflare, Google, Quad9)")
+	pf.BoolVar(&opts.noDNSSECCache, "no-dnssec-cache", false, "disable the in-memory verifier cache (root/TLD DNSKEY/DS reuse). Useful for cold-path measurement or to defeat caching across batch runs")
 
 	return cmd
 }
@@ -332,12 +334,13 @@ func buildDNSSECProbe(dnsCli dnsclient.Client, opts *rootOpts) (*dnssec.Probe, e
 // used (so the user's choice of resolver round-trips cleanly); else the
 // DoH client is used with the configured (or default) provider list.
 //
-// An in-memory verifier cache is attached unconditionally: it makes
+// An in-memory verifier cache is attached by default: it makes
 // --input batch runs reuse the root and TLD DNSKEY / DS rrsets across
 // every domain, and has no observable effect on single-domain runs
 // beyond a negligible Map allocation. The cache lifetime is the
 // lifetime of the Verifier (one CLI invocation); nothing persists to
-// disk.
+// disk. Pass --no-dnssec-cache to opt out (e.g. to measure cold-path
+// behaviour or to ensure each domain re-walks the full chain).
 func buildVerifier(opts *rootOpts) (*verifier.Verifier, error) {
 	var resolver verifier.Resolver
 	if opts.dnsServer != "" {
@@ -354,10 +357,11 @@ func buildVerifier(opts *rootOpts) (*verifier.Verifier, error) {
 		c := doh.NewClient(dohOpts...)
 		resolver = verifier.ResolverFunc(c.Resolve)
 	}
-	return verifier.NewVerifier(
-		verifier.WithResolver(resolver),
-		verifier.WithCache(verifier.NewMemoryCache()),
-	)
+	vopts := []verifier.Option{verifier.WithResolver(resolver)}
+	if !opts.noDNSSECCache {
+		vopts = append(vopts, verifier.WithCache(verifier.NewMemoryCache()))
+	}
+	return verifier.NewVerifier(vopts...)
 }
 
 // mergedAsExtras is a tiny adapter: dkim.New treats its second arg as
