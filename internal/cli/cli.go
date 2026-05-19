@@ -119,7 +119,7 @@ func newRoot() *cobra.Command {
 	pf := cmd.PersistentFlags()
 	pf.StringVarP(&opts.outputFmt, "output", "o", opts.outputFmt, "output format: human|json|tsv")
 	pf.StringVar(&opts.color, "color", opts.color, "colour mode for human output: auto|always|never")
-	pf.StringVar(&opts.dnsServer, "dns-server", "", "DNS server to query (host or host:port). Default: system resolver")
+	pf.StringVar(&opts.dnsServer, "dns-server", "", "DNS server to query. Accepts host, host:port, or a DoH URL (https://…). Default (unset): DoH against the built-in provider list (Cloudflare/Google/Quad9), one HTTP/2 connection shared between probes and the DNSSEC verifier. Pass a host[:port] to force classic UDP/TCP against a specific recursive resolver (split-horizon DNS, internal mirror, captive lab)")
 	pf.StringSliceVar(&opts.dkimSelectors, "dkim-selector", nil, "additional DKIM selector to probe (repeatable)")
 	pf.StringVar(&opts.dkimSelFile, "dkim-selectors-file", "", "override the embedded DKIM selector list with this YAML file")
 	pf.BoolVar(&opts.noSPFInference, "no-spf-inference", false, "disable SPF-driven DKIM selector inference (only relevant when --dkim is set)")
@@ -165,15 +165,12 @@ func run(ctx context.Context, opts *rootOpts, args []string) error {
 		return fmt.Errorf("no domains supplied (pass as args or via --input)")
 	}
 
-	dnsCli, err := dnsclient.New(dnsclient.Config{
-		Server:  opts.dnsServer,
-		Timeout: opts.timeout,
-	})
+	dnsCli, verifierResolver, err := buildTransports(opts)
 	if err != nil {
-		return fmt.Errorf("init DNS client: %w", err)
+		return fmt.Errorf("init DNS transports: %w", err)
 	}
 
-	probes, err := buildProbes(dnsCli, opts)
+	probes, err := buildProbes(dnsCli, verifierResolver, opts)
 	if err != nil {
 		return err
 	}
@@ -247,7 +244,56 @@ func anyDomainFailed(reports []signals.Report) bool {
 	return false
 }
 
-func buildProbes(dnsCli dnsclient.Client, opts *rootOpts) ([]classifier.Probe, error) {
+// buildTransports constructs the probe-side DNS client and the
+// verifier-side resolver, sharing one *doh.Client whenever DoH is in
+// use so HTTP/2 multiplex covers probe queries (~40 DKIM selectors per
+// domain) and chain-validation queries together over a single TCP/TLS
+// connection.
+//
+// Dispatch:
+//   - --dns-server https://…  → DoH everywhere, shared client at that URL
+//   - --dns-server host[:port] → UDP for probes (miekg/dns), auth client for verifier — used when the operator wants a specific recursive resolver (split-horizon DNS, an internal mirror, a captive lab)
+//   - --dns-server "" (default) → DoH everywhere, shared client at the default provider list (Cloudflare → Google → Quad9). --dnssec-doh-provider overrides the provider list when set
+//
+// When --dns-server is a DoH URL, --dnssec-doh-provider is ignored
+// because the verifier piggybacks on the same URL; a debug-level log
+// records that fact.
+func buildTransports(opts *rootOpts) (dnsclient.Client, verifier.Resolver, error) {
+	if dnsclient.IsDoHURL(opts.dnsServer) {
+		if len(opts.dnssecDOHProviders) > 0 {
+			slog.Debug("--dnssec-doh-provider ignored because --dns-server is a DoH URL")
+		}
+		dohClient := doh.NewClient(doh.WithProviders(opts.dnsServer))
+		return dnsclient.NewDoH(dohClient),
+			verifier.ResolverFunc(dohClient.Resolve),
+			nil
+	}
+	if opts.dnsServer == "" {
+		dohOpts := []doh.Option{}
+		if len(opts.dnssecDOHProviders) > 0 {
+			dohOpts = append(dohOpts, doh.WithProviders(opts.dnssecDOHProviders...))
+		}
+		dohClient := doh.NewClient(dohOpts...)
+		return dnsclient.NewDoH(dohClient),
+			verifier.ResolverFunc(dohClient.Resolve),
+			nil
+	}
+	// Explicit non-URL --dns-server: classic UDP for probes, auth for verifier.
+	dnsCli, err := dnsclient.New(dnsclient.Config{
+		Server:  opts.dnsServer,
+		Timeout: opts.timeout,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("init DNS client: %w", err)
+	}
+	c := auth.NewClient(
+		auth.WithServers(opts.dnsServer),
+		auth.WithTimeout(opts.timeout),
+	)
+	return dnsCli, verifier.ResolverFunc(c.Resolve), nil
+}
+
+func buildProbes(dnsCli dnsclient.Client, vresolver verifier.Resolver, opts *rootOpts) ([]classifier.Probe, error) {
 	var dkimProbeProbe classifier.Probe
 	if !opts.dkim {
 		// DKIM scanning is opt-in (--dkim). When off, emit a stub
@@ -293,7 +339,7 @@ func buildProbes(dnsCli dnsclient.Client, opts *rootOpts) ([]classifier.Probe, e
 		dmarcProbe.EnableRUACheck = false
 	}
 
-	dnssecProbe, err := buildDNSSECProbe(dnsCli, opts)
+	dnssecProbe, err := buildDNSSECProbe(dnsCli, vresolver, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -328,13 +374,13 @@ func buildProbes(dnsCli dnsclient.Client, opts *rootOpts) ([]classifier.Probe, e
 // authoritative-DNS client when --dns-server is set, else the DoH
 // client (Cloudflare → Google → Quad9 by default; see
 // dnsdata-go/resolver/doh package doc for the rationale).
-func buildDNSSECProbe(dnsCli dnsclient.Client, opts *rootOpts) (*dnssec.Probe, error) {
+func buildDNSSECProbe(dnsCli dnsclient.Client, vresolver verifier.Resolver, opts *rootOpts) (*dnssec.Probe, error) {
 	mode := dnssec.Mode(opts.dnssecMode)
 	switch mode {
 	case dnssec.ModeADOnly, "":
 		return dnssec.New(dnsCli), nil
 	case dnssec.ModeValidate:
-		v, err := buildVerifier(opts)
+		v, err := buildVerifier(vresolver, opts)
 		if err != nil {
 			return nil, fmt.Errorf("build DNSSEC verifier: %w", err)
 		}
@@ -344,10 +390,8 @@ func buildDNSSECProbe(dnsCli dnsclient.Client, opts *rootOpts) (*dnssec.Probe, e
 	}
 }
 
-// buildVerifier constructs a chain validator wired to the appropriate
-// transport. When --dns-server is set the authoritative-DNS client is
-// used (so the user's choice of resolver round-trips cleanly); else the
-// DoH client is used with the configured (or default) provider list.
+// buildVerifier wraps a pre-constructed [verifier.Resolver] (built by
+// [buildTransports]) into a [verifier.Verifier].
 //
 // An in-memory verifier cache is attached by default: it makes
 // --input batch runs reuse the root and TLD DNSKEY / DS rrsets across
@@ -356,22 +400,7 @@ func buildDNSSECProbe(dnsCli dnsclient.Client, opts *rootOpts) (*dnssec.Probe, e
 // lifetime of the Verifier (one CLI invocation); nothing persists to
 // disk. Pass --no-dnssec-cache to opt out (e.g. to measure cold-path
 // behaviour or to ensure each domain re-walks the full chain).
-func buildVerifier(opts *rootOpts) (*verifier.Verifier, error) {
-	var resolver verifier.Resolver
-	if opts.dnsServer != "" {
-		c := auth.NewClient(
-			auth.WithServers(opts.dnsServer),
-			auth.WithTimeout(opts.timeout),
-		)
-		resolver = verifier.ResolverFunc(c.Resolve)
-	} else {
-		dohOpts := []doh.Option{}
-		if len(opts.dnssecDOHProviders) > 0 {
-			dohOpts = append(dohOpts, doh.WithProviders(opts.dnssecDOHProviders...))
-		}
-		c := doh.NewClient(dohOpts...)
-		resolver = verifier.ResolverFunc(c.Resolve)
-	}
+func buildVerifier(resolver verifier.Resolver, opts *rootOpts) (*verifier.Verifier, error) {
 	vopts := []verifier.Option{verifier.WithResolver(resolver)}
 	if !opts.noDNSSECCache {
 		vopts = append(vopts, verifier.WithCache(verifier.NewMemoryCache()))
