@@ -83,6 +83,7 @@ type rootOpts struct {
 	stats              bool
 	timeout            time.Duration
 	concurrency        int
+	dkimConcurrency    int
 	includeRaw         bool
 	verbose            int
 	dnssecMode         string
@@ -132,6 +133,7 @@ func newRoot() *cobra.Command {
 	pf.BoolVar(&opts.stats, "stats", false, "append a cross-domain statistics block to the output")
 	pf.DurationVar(&opts.timeout, "timeout", opts.timeout, "per-domain observation timeout")
 	pf.IntVar(&opts.concurrency, "concurrency", opts.concurrency, "max parallel domains")
+	pf.IntVar(&opts.dkimConcurrency, "dkim-concurrency", 0, "max parallel DKIM selector lookups per domain (0 = built-in default)")
 	pf.BoolVar(&opts.includeRaw, "include-raw", false, "include raw TXT/HTTPS bodies in the output")
 	pf.CountVarP(&opts.verbose, "verbose", "v", "increase verbosity (-v info, -vv debug)")
 	pf.StringVar(&opts.dnssecMode, "dnssec-mode", opts.dnssecMode, "DNSSEC strategy: ad-only|validate")
@@ -279,6 +281,9 @@ func buildProbes(dnsCli dnsclient.Client, opts *rootOpts) ([]classifier.Probe, e
 		dp.Selectors = dedupe(merged)
 		if opts.noSPFInference {
 			dp.EnableInference = false
+		}
+		if opts.dkimConcurrency > 0 {
+			dp.Concurrency = opts.dkimConcurrency
 		}
 		dkimProbeProbe = dp
 	}

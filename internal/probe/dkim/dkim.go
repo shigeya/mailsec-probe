@@ -22,7 +22,12 @@ import (
 const name = "dkim"
 
 // defaultConcurrency caps parallel selector lookups per domain.
-const defaultConcurrency = 8
+//
+// The embedded selector set has ~42 entries; 11 keeps the worst case to
+// 4 batches (42/11 = 3.81) so a domain with no DKIM hits finishes in
+// roughly 4 DNS RTTs instead of 6. Override per-Probe via Concurrency or
+// from the CLI via --dkim-concurrency.
+const defaultConcurrency = 11
 
 // Probe observes DKIM with a fixed selector set, optionally augmented
 // by SPF-driven inference when EnableInference is true.
