@@ -68,15 +68,22 @@ type Client interface {
 
 // Config controls the default Client.
 type Config struct {
-	// Server is the DNS server to query, host:port. Empty means use the
-	// system resolver via miekg/dns ClientConfigFromFile fallback.
+	// Server selects the transport:
+	//   - empty: system resolver via /etc/resolv.conf (UDP/TCP)
+	//   - "host" or "host:port": classic UDP/TCP resolver
+	//   - "https://…" or "http://…": DoH backend pointed at this URL
 	Server  string
 	Timeout time.Duration
 }
 
-// New returns a default Client that queries Server (or system resolvers
-// if Server is empty).
+// New returns a default Client. The transport is chosen from
+// [Config.Server]: a DoH URL (https://…) dispatches to the DoH backend
+// shared with the DNSSEC verifier; anything else uses the UDP/TCP
+// resolver wrapping miekg/dns.
 func New(cfg Config) (Client, error) {
+	if IsDoHURL(cfg.Server) {
+		return NewDoHFromURL(cfg.Server)
+	}
 	timeout := cfg.Timeout
 	if timeout == 0 {
 		timeout = 5 * time.Second
