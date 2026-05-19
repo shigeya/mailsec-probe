@@ -33,7 +33,7 @@ import (
 )
 
 // Version is overwritten at build time via -ldflags.
-var Version = "0.5.0"
+var Version = "0.6.0"
 
 // Exit codes:
 //
