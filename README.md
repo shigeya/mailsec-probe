@@ -293,6 +293,9 @@ Out of scope:
 
 MIT. See [LICENSE](LICENSE).
 
-## Acknowledgement
+## Acknowledgements
 
-Designed and coded with Claude Opus 4.7
+The design, implementation, and documentation in this repository were
+produced in collaboration with
+[Claude Opus 4.7](https://www.anthropic.com/claude) running inside
+[Claude Code](https://www.anthropic.com/claude-code).
