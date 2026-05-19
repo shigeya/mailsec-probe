@@ -71,7 +71,7 @@ mailsec-probe -o json google.com cloudflare.com github.com > scan.json
 | MTA-STS   | `TXT @ _mta-sts.<domain>` + HTTPS policy | [RFC 8461](https://www.rfc-editor.org/rfc/rfc8461) | Two-stage check; mode=enforce / testing / none              |
 | TLS-RPT   | `TXT @ _smtp._tls.<domain>`              | [RFC 8460](https://www.rfc-editor.org/rfc/rfc8460) | Reports `rua=` endpoint                                     |
 | BIMI      | `TXT @ default._bimi.<domain>`           | [draft-ietf-dmarc-bimi](https://datatracker.ietf.org/doc/draft-ietf-dmarc-bimi/) | Reads `l=` (logo) and `a=` (VMC URI); does NOT validate VMC |
-| DNSSEC    | AD bit + DS in parent                    | [RFC 4033](https://www.rfc-editor.org/rfc/rfc4033)–[4035](https://www.rfc-editor.org/rfc/rfc4035) (AD bit: [RFC 4035 §3.2.3](https://www.rfc-editor.org/rfc/rfc4035#section-3.2.3); DS: [RFC 4034 §5](https://www.rfc-editor.org/rfc/rfc4034#section-5)) | No on-the-wire DNSKEY validation (Phase 1 design choice)    |
+| DNSSEC    | DS / DNSKEY / RRSIG chain from the root  | [RFC 4033](https://www.rfc-editor.org/rfc/rfc4033)–[4035](https://www.rfc-editor.org/rfc/rfc4035) (AD bit: [RFC 4035 §3.2.3](https://www.rfc-editor.org/rfc/rfc4035#section-3.2.3); DS: [RFC 4034 §5](https://www.rfc-editor.org/rfc/rfc4034#section-5)) | Default `--dnssec-mode validate`: on-the-wire chain validation via [`dnsdata-go`](https://github.com/shigeya/dnsdata-go), distinguishing SECURE / INSECURE / BOGUS. `--dnssec-mode ad-only` falls back to the legacy AD-bit + DS observation |
 | STARTTLS  | `EHLO` + STARTTLS + TLS handshake on each MX:25 | [RFC 3207](https://www.rfc-editor.org/rfc/rfc3207) | **Active**: opt-in via `--active`. Records TLS version, leaf cert subject/issuer/SANs/expiry, PKIX validity |
 | DANE      | `TLSA @ _25._tcp.<mx>` matched against observed cert | [RFC 6698](https://www.rfc-editor.org/rfc/rfc6698), [RFC 7672](https://www.rfc-editor.org/rfc/rfc7672) | **Active**: usage/selector/matching parsed; SHA-256 / SHA-512 of full-cert or SPKI checked against the cert returned during STARTTLS |
 
@@ -127,6 +127,8 @@ The YAML format mirrors `rules/dkim_selectors.yaml`.
     --smtp-port int                 SMTP port for --active probes (default 25)
     --smtp-timeout duration         per-MX SMTP probe timeout (default 10s)
     --ehlo-name string              EHLO name used during --active probes (default "mailsec-probe.local")
+    --dnssec-mode string            DNSSEC strategy: ad-only|validate (default "validate")
+    --dnssec-doh-provider strings   DoH provider URL for --dnssec-mode validate (repeatable; default Google/Cloudflare/Quad9)
     --timeout duration              per-domain observation timeout  (default 10s)
     --concurrency int               max parallel domains  (default 8)
     --include-raw                   include raw TXT/HTTPS bodies in output
@@ -248,7 +250,18 @@ the upstream operators rotating records.
 
 ## Phase
 
-Currently **Phase 2.5**. Phase 2.5 adds:
+Currently **Phase 3.0**. Phase 3.0 adds:
+
+- **DNSSEC chain validation** — `--dnssec-mode validate` (default) performs
+  full on-the-wire DS / DNSKEY / RRSIG chain validation from the root via
+  [`dnsdata-go`](https://github.com/shigeya/dnsdata-go), distinguishing
+  SECURE / INSECURE / BOGUS. By default the resolver fans out to
+  Google / Cloudflare / Quad9 DoH endpoints (override with
+  `--dnssec-doh-provider`, or fall through to `--dns-server` when that is
+  set). `--dnssec-mode ad-only` preserves the legacy AD-bit + DS
+  observation from Phase 1.0–2.5.
+
+Phase 2.5 adds:
 
 - **Batch input** — `--input <file>` (one domain per line; `-` for stdin).
   Merged with positional args, duplicates removed.
@@ -283,7 +296,6 @@ Phase 1.5 adds:
 
 Out of scope:
 
-- On-the-wire DNSKEY/DS chain validation
 - BIMI VMC (Verified Mark Certificate) validation
 - TLSA Usage 0/2 (trust-anchor) semantics — Phase 2.0 validates Usage 3
   (DANE-EE) precisely; trust-anchor records are observed but treated
