@@ -62,18 +62,18 @@ mailsec-probe -o json google.com cloudflare.com github.com > scan.json
 
 ## What it checks
 
-| Feature   | DNS record                              | Notes                                                       |
-|-----------|------------------------------------------|-------------------------------------------------------------|
-| SPF       | `TXT @ <domain>` starting with `v=spf1` | Detects `-all`/`~all`/`?all`/`+all`, includes, redirect (`redirect=` without `all` is valid, RFC 7208 §6.1) |
-| DMARC     | `TXT @ _dmarc.<domain>`                  | `p=`, `sp=`, `pct=`, `rua=`, `ruf=`, `aspf=`, `adkim=`      |
-| DKIM      | `TXT @ <selector>._domainkey.<domain>`   | Probes a curated selector list; honours `v=DKIM1; p=` revocations and revoked-wildcard patterns (see [docs/DKIM_SELECTORS.md](docs/DKIM_SELECTORS.md)) |
-| MX        | `MX @ <domain>`                          | Hosts sorted by preference; `MX 0 .` (RFC 7505 null MX) is reported as absent with the explicit reason |
-| MTA-STS   | `TXT @ _mta-sts.<domain>` + HTTPS policy | Two-stage check; mode=enforce / testing / none              |
-| TLS-RPT   | `TXT @ _smtp._tls.<domain>`              | Reports `rua=` endpoint                                     |
-| BIMI      | `TXT @ default._bimi.<domain>`           | Reads `l=` (logo) and `a=` (VMC URI); does NOT validate VMC |
-| DNSSEC    | AD bit + DS in parent                    | No on-the-wire DNSKEY validation (Phase 1 design choice)    |
-| STARTTLS  | `EHLO` + STARTTLS + TLS handshake on each MX:25 | **Active**: opt-in via `--active`. Records TLS version, leaf cert subject/issuer/SANs/expiry, PKIX validity |
-| DANE      | `TLSA @ _25._tcp.<mx>` matched against observed cert | **Active**: usage/selector/matching parsed; SHA-256 / SHA-512 of full-cert or SPKI checked against the cert returned during STARTTLS |
+| Feature   | DNS record                              | RFC | Notes                                                       |
+|-----------|------------------------------------------|-----|-------------------------------------------------------------|
+| SPF       | `TXT @ <domain>` starting with `v=spf1` | [RFC 7208](https://www.rfc-editor.org/rfc/rfc7208) | Detects `-all`/`~all`/`?all`/`+all`, includes, redirect (`redirect=` without `all` is valid, §6.1) |
+| DMARC     | `TXT @ _dmarc.<domain>`                  | [RFC 7489](https://www.rfc-editor.org/rfc/rfc7489) | `p=`, `sp=`, `pct=`, `rua=`, `ruf=`, `aspf=`, `adkim=`      |
+| DKIM      | `TXT @ <selector>._domainkey.<domain>`   | [RFC 6376](https://www.rfc-editor.org/rfc/rfc6376) | Probes a curated selector list; honours `v=DKIM1; p=` revocations (§3.6.1) and revoked-wildcard patterns (see [docs/DKIM_SELECTORS.md](docs/DKIM_SELECTORS.md)) |
+| MX        | `MX @ <domain>`                          | [RFC 5321 §5.1](https://www.rfc-editor.org/rfc/rfc5321#section-5.1), [RFC 7505](https://www.rfc-editor.org/rfc/rfc7505) | Hosts sorted by preference; `MX 0 .` (null MX) is reported as absent with the explicit reason |
+| MTA-STS   | `TXT @ _mta-sts.<domain>` + HTTPS policy | [RFC 8461](https://www.rfc-editor.org/rfc/rfc8461) | Two-stage check; mode=enforce / testing / none              |
+| TLS-RPT   | `TXT @ _smtp._tls.<domain>`              | [RFC 8460](https://www.rfc-editor.org/rfc/rfc8460) | Reports `rua=` endpoint                                     |
+| BIMI      | `TXT @ default._bimi.<domain>`           | [draft-ietf-dmarc-bimi](https://datatracker.ietf.org/doc/draft-ietf-dmarc-bimi/) | Reads `l=` (logo) and `a=` (VMC URI); does NOT validate VMC |
+| DNSSEC    | AD bit + DS in parent                    | [RFC 4033](https://www.rfc-editor.org/rfc/rfc4033)–[4035](https://www.rfc-editor.org/rfc/rfc4035) (AD bit: [RFC 4035 §3.2.3](https://www.rfc-editor.org/rfc/rfc4035#section-3.2.3); DS: [RFC 4034 §5](https://www.rfc-editor.org/rfc/rfc4034#section-5)) | No on-the-wire DNSKEY validation (Phase 1 design choice)    |
+| STARTTLS  | `EHLO` + STARTTLS + TLS handshake on each MX:25 | [RFC 3207](https://www.rfc-editor.org/rfc/rfc3207) | **Active**: opt-in via `--active`. Records TLS version, leaf cert subject/issuer/SANs/expiry, PKIX validity |
+| DANE      | `TLSA @ _25._tcp.<mx>` matched against observed cert | [RFC 6698](https://www.rfc-editor.org/rfc/rfc6698), [RFC 7672](https://www.rfc-editor.org/rfc/rfc7672) | **Active**: usage/selector/matching parsed; SHA-256 / SHA-512 of full-cert or SPKI checked against the cert returned during STARTTLS |
 
 ## How confidence works
 
