@@ -118,9 +118,11 @@ The YAML format mirrors `rules/dkim_selectors.yaml`.
     --color string                  colour mode for human output: auto|always|never  (default "auto")
     --input string                  read additional domains from file (one per line, # comments); use "-" for stdin
     --stats                         append cross-domain statistics to the output
-    --dns-server string             DNS server (host or host:port). Default: system resolver
+    --dns-server string             DNS server: host, host:port, or DoH URL (https://…). Default: DoH against the built-in provider list (Cloudflare/Google/Quad9), shared between probes and the DNSSEC verifier. Pass host[:port] to force UDP/TCP against a specific resolver
+    --no-dkim                       skip the DKIM selector scan; DKIM appears as SKIPPED in output
     --dkim-selector strings         additional DKIM selector to probe (repeatable)
     --dkim-selectors-file string    override embedded DKIM selector list
+    --dkim-concurrency int          max parallel DKIM selector lookups per domain (0 = built-in default 11)
     --no-spf-inference              disable SPF-driven DKIM selector inference
     --no-rua-check                  disable DMARC rua= HTTPS reachability HEAD checks
     --active                        enable active SMTP probes (STARTTLS + DANE) on each MX:25
@@ -128,7 +130,8 @@ The YAML format mirrors `rules/dkim_selectors.yaml`.
     --smtp-timeout duration         per-MX SMTP probe timeout (default 10s)
     --ehlo-name string              EHLO name used during --active probes (default "mailsec-probe.local")
     --dnssec-mode string            DNSSEC strategy: ad-only|validate (default "validate")
-    --dnssec-doh-provider strings   DoH provider URL for --dnssec-mode validate (repeatable; default Cloudflare/Google/Quad9)
+    --dnssec-doh-provider strings   DoH provider URL (repeatable; overrides the built-in Cloudflare/Google/Quad9 list. Ignored when --dns-server is a DoH URL)
+    --no-dnssec-cache               disable the in-memory verifier cache (root/TLD DNSKEY/DS reuse across a batch run)
     --timeout duration              per-domain observation timeout  (default 10s)
     --concurrency int               max parallel domains  (default 8)
     --include-raw                   include raw TXT/HTTPS bodies in output
@@ -202,10 +205,12 @@ Active mode requires outbound TCP :25 to work. Many residential
 networks and CI runners block it; in those environments STARTTLS will
 come back as `UNKNOWN` and DANE will be `ABSENT` (no TLSA observable).
 
-## DoH provider selection
+## DNS transport and DoH
 
-`--dnssec-mode validate` (the default) sends DNSSEC chain queries over
-DoH unless `--dns-server` is set. The default provider order is:
+By default `mailsec-probe` sends **every** DNS query (probes and DNSSEC
+chain validation alike) over DoH, sharing one HTTP/2 connection so the
+~42 DKIM selector lookups for a single domain multiplex alongside
+chain-validation queries. The default provider list is:
 
 1. Cloudflare — `https://cloudflare-dns.com/dns-query`
 2. Google — `https://dns.google/dns-query`
@@ -214,6 +219,14 @@ DoH unless `--dns-server` is set. The default provider order is:
 Failover is **sequential**: each provider gets up to 10 s before the
 next is tried. That makes the first entry the one that dominates
 wall time, so it is worth choosing it deliberately.
+
+Performance impact: switching the probe path to DoH (and sharing the
+client with the verifier) made a 10-domain `--dkim` batch run roughly
+**7× faster** on a Tailscale-fronted environment in our measurements
+(4.5 s → 0.6 s). The biggest win is on DKIM-miss-everywhere domains
+where the old default sent ~42 UDP queries through the system resolver
+hop; over multiplexed DoH that becomes one TLS handshake plus near-
+parallel queries.
 
 ### Why this order
 
@@ -234,28 +247,48 @@ wall time, so it is worth choosing it deliberately.
   upstream-faithful resolvers have failed avoids this in the common
   case while keeping a third source for resilience.
 
-### Tuning advice
+### Choosing the transport
 
-- **Most users:** the default order is fine. No flag needed.
-- **Users with regional knowledge** (e.g. internal resolvers, regional
-  ISP DoH, EU sovereignty constraints): pass `--dnssec-doh-provider`
-  one or more times to override the list. The flag repeats; the first
-  value listed is tried first.
-- **Users behind an air-gapped or split-horizon network:** point
-  `--dns-server` at the corporate recursive resolver instead. With
-  `--dns-server` set, DNSSEC queries use plain UDP/TCP to that server
-  and DoH providers are not consulted.
+`--dns-server` decides what transport every probe uses:
+
+| `--dns-server` value | Probes | DNSSEC verifier |
+|---|---|---|
+| unset (default) | DoH (Cloudflare → Google → Quad9) | DoH (same client, shared HTTP/2 connection) |
+| `host[:port]` | UDP/TCP against that host | Authoritative UDP/TCP against that host |
+| `https://…` | DoH against that URL | DoH against the same URL (shared client) |
+
+So:
+
+- **Most users:** no flag needed. DoH is the default.
+- **Pin to one provider** (e.g. lowest p99 for your region): pass
+  `--dnssec-doh-provider https://cloudflare-dns.com/dns-query`. The
+  flag repeats; the first value listed is tried first. (It is named
+  `--dnssec-doh-provider` for historical reasons — it now controls the
+  DoH list for all probes.)
+- **Split-horizon DNS / internal mirror / air-gapped lab:** pass a
+  classic `host[:port]` to `--dns-server`. UDP/TCP is used and no DoH
+  provider is consulted.
+- **Custom DoH URL** (lab proxy, corporate DoH endpoint): pass it as
+  `--dns-server https://…`. In this case `--dnssec-doh-provider` is
+  ignored — the verifier piggybacks on the same URL.
 
 ```bash
-# Force Cloudflare only (lowest p99 from most APAC vantage points)
+# Default: DoH everywhere, no flag needed
+mailsec-probe example.com
+
+# Force Cloudflare only
 mailsec-probe --dnssec-doh-provider https://cloudflare-dns.com/dns-query example.com
 
-# Use a corporate internal recursive resolver for everything
+# Use a corporate internal UDP resolver for everything
 mailsec-probe --dns-server 10.0.0.53 example.com
+
+# Use a lab DoH proxy
+mailsec-probe --dns-server https://doh.lab.internal/dns-query example.com
 ```
 
-The same ordering is documented in `dnsdata-go`'s `resolver/doh`
-package doc, which is the source of truth for the rationale.
+The provider rationale above is also documented in `dnsdata-go`'s
+`resolver/doh` package doc, which is the source of truth for the
+ordering.
 
 ## Exit codes
 
@@ -305,18 +338,25 @@ the upstream operators rotating records.
 
 ## Phase
 
-Currently **Phase 3.0**. Phase 3.0 adds:
+Currently **Phase 3.0** (v0.6.0). Highlights of the v0.6.0 release:
 
+- **DoH default transport** — every probe (SPF/DMARC/DKIM/MX/MTA-STS/
+  TLS-RPT/BIMI/DNSSEC) now flows over DoH by default, sharing one
+  HTTP/2 connection with the DNSSEC chain verifier. `--dns-server`
+  accepts a DoH URL (`https://…`) or a classic `host[:port]` to fall
+  back to UDP/TCP. Measured ~7× speedup for `--dkim` batch runs.
+- **DKIM scanning on by default** — `--no-dkim` skips it, mirroring
+  the pre-v0.5.0 behaviour. Combined with the DoH transport the
+  worst-case ~42-selector miss-everywhere scan finishes in ~150 ms
+  per domain.
 - **DNSSEC chain validation** — `--dnssec-mode validate` (default) performs
   full on-the-wire DS / DNSKEY / RRSIG chain validation from the root via
   [`dnsdata-go`](https://github.com/shigeya/dnsdata-go), distinguishing
-  SECURE / INSECURE / BOGUS. By default the resolver tries DoH endpoints
-  in the order **Cloudflare → Google → Quad9** (sequential failover;
-  override with `--dnssec-doh-provider`, or fall through to
-  `--dns-server` when that is set). `--dnssec-mode ad-only` preserves
-  the legacy AD-bit + DS observation from Phase 1.0–2.5.
+  SECURE / INSECURE / BOGUS. The verifier consumes the same DoH client
+  as the probes (see above). `--dnssec-mode ad-only` preserves the
+  legacy AD-bit + DS observation from Phase 1.0–2.5.
 
-  See the [DoH provider selection](#doh-provider-selection) section
+  See the [DNS transport and DoH](#dns-transport-and-doh) section
   below for the rationale and tuning advice.
 
 Phase 2.5 adds:
