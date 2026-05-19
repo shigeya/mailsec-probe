@@ -331,6 +331,13 @@ func buildDNSSECProbe(dnsCli dnsclient.Client, opts *rootOpts) (*dnssec.Probe, e
 // transport. When --dns-server is set the authoritative-DNS client is
 // used (so the user's choice of resolver round-trips cleanly); else the
 // DoH client is used with the configured (or default) provider list.
+//
+// An in-memory verifier cache is attached unconditionally: it makes
+// --input batch runs reuse the root and TLD DNSKEY / DS rrsets across
+// every domain, and has no observable effect on single-domain runs
+// beyond a negligible Map allocation. The cache lifetime is the
+// lifetime of the Verifier (one CLI invocation); nothing persists to
+// disk.
 func buildVerifier(opts *rootOpts) (*verifier.Verifier, error) {
 	var resolver verifier.Resolver
 	if opts.dnsServer != "" {
@@ -347,7 +354,10 @@ func buildVerifier(opts *rootOpts) (*verifier.Verifier, error) {
 		c := doh.NewClient(dohOpts...)
 		resolver = verifier.ResolverFunc(c.Resolve)
 	}
-	return verifier.NewVerifier(verifier.WithResolver(resolver))
+	return verifier.NewVerifier(
+		verifier.WithResolver(resolver),
+		verifier.WithCache(verifier.NewMemoryCache()),
+	)
 }
 
 // mergedAsExtras is a tiny adapter: dkim.New treats its second arg as
