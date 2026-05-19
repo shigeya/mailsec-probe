@@ -132,7 +132,7 @@ func newRoot() *cobra.Command {
 	pf.BoolVar(&opts.includeRaw, "include-raw", false, "include raw TXT/HTTPS bodies in the output")
 	pf.CountVarP(&opts.verbose, "verbose", "v", "increase verbosity (-v info, -vv debug)")
 	pf.StringVar(&opts.dnssecMode, "dnssec-mode", opts.dnssecMode, "DNSSEC strategy: ad-only|validate")
-	pf.StringSliceVar(&opts.dnssecDOHProviders, "dnssec-doh-provider", nil, "DoH provider URL for --dnssec-mode validate (repeatable; default: Google, Cloudflare, Quad9)")
+	pf.StringSliceVar(&opts.dnssecDOHProviders, "dnssec-doh-provider", nil, "DoH provider URL for --dnssec-mode validate (repeatable; default: Cloudflare, Google, Quad9)")
 
 	return cmd
 }
@@ -309,7 +309,8 @@ func buildProbes(dnsCli dnsclient.Client, opts *rootOpts) ([]classifier.Probe, e
 //
 // validate mode: chain validation via dnsdata-go. The resolver is the
 // authoritative-DNS client when --dns-server is set, else the DoH
-// client (Google → Cloudflare → Quad9 by default).
+// client (Cloudflare → Google → Quad9 by default; see
+// dnsdata-go/resolver/doh package doc for the rationale).
 func buildDNSSECProbe(dnsCli dnsclient.Client, opts *rootOpts) (*dnssec.Probe, error) {
 	mode := dnssec.Mode(opts.dnssecMode)
 	switch mode {

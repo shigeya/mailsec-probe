@@ -128,7 +128,7 @@ The YAML format mirrors `rules/dkim_selectors.yaml`.
     --smtp-timeout duration         per-MX SMTP probe timeout (default 10s)
     --ehlo-name string              EHLO name used during --active probes (default "mailsec-probe.local")
     --dnssec-mode string            DNSSEC strategy: ad-only|validate (default "validate")
-    --dnssec-doh-provider strings   DoH provider URL for --dnssec-mode validate (repeatable; default Google/Cloudflare/Quad9)
+    --dnssec-doh-provider strings   DoH provider URL for --dnssec-mode validate (repeatable; default Cloudflare/Google/Quad9)
     --timeout duration              per-domain observation timeout  (default 10s)
     --concurrency int               max parallel domains  (default 8)
     --include-raw                   include raw TXT/HTTPS bodies in output
@@ -202,6 +202,61 @@ Active mode requires outbound TCP :25 to work. Many residential
 networks and CI runners block it; in those environments STARTTLS will
 come back as `UNKNOWN` and DANE will be `ABSENT` (no TLSA observable).
 
+## DoH provider selection
+
+`--dnssec-mode validate` (the default) sends DNSSEC chain queries over
+DoH unless `--dns-server` is set. The default provider order is:
+
+1. Cloudflare — `https://cloudflare-dns.com/dns-query`
+2. Google — `https://dns.google/dns-query`
+3. Quad9 — `https://dns.quad9.net/dns-query`
+
+Failover is **sequential**: each provider gets up to 10 s before the
+next is tried. That makes the first entry the one that dominates
+wall time, so it is worth choosing it deliberately.
+
+### Why this order
+
+- **Cloudflare first.** Cloudflare's anycast PoP footprint is the
+  most evenly distributed worldwide. From most geographies — and in
+  particular from Asia/Pacific — its tail-latency distribution is more
+  predictable than Google's, which can vary noticeably with the ISP's
+  upstream peering. Cloudflare also publishes a no-logging-beyond-24h
+  policy that is acceptable as a generic default.
+- **Google second.** Google's DoH is highly reliable and has effectively
+  unlimited capacity, but the path to it varies by route announcement.
+  Keeping it as a fallback gives a strong second option without paying
+  the route variance on every query.
+- **Quad9 last.** Quad9 applies a malicious-domain block list and
+  returns `NXDOMAIN` for filtered names. For a chain validator this
+  can surface as a spurious `INSECURE` or `NXDOMAIN` verdict on the
+  rare domain Quad9 has chosen to filter. Using Quad9 only after both
+  upstream-faithful resolvers have failed avoids this in the common
+  case while keeping a third source for resilience.
+
+### Tuning advice
+
+- **Most users:** the default order is fine. No flag needed.
+- **Users with regional knowledge** (e.g. internal resolvers, regional
+  ISP DoH, EU sovereignty constraints): pass `--dnssec-doh-provider`
+  one or more times to override the list. The flag repeats; the first
+  value listed is tried first.
+- **Users behind an air-gapped or split-horizon network:** point
+  `--dns-server` at the corporate recursive resolver instead. With
+  `--dns-server` set, DNSSEC queries use plain UDP/TCP to that server
+  and DoH providers are not consulted.
+
+```bash
+# Force Cloudflare only (lowest p99 from most APAC vantage points)
+mailsec-probe --dnssec-doh-provider https://cloudflare-dns.com/dns-query example.com
+
+# Use a corporate internal recursive resolver for everything
+mailsec-probe --dns-server 10.0.0.53 example.com
+```
+
+The same ordering is documented in `dnsdata-go`'s `resolver/doh`
+package doc, which is the source of truth for the rationale.
+
 ## Exit codes
 
 - `0` — all domains observed (regardless of feature presence)
@@ -255,11 +310,14 @@ Currently **Phase 3.0**. Phase 3.0 adds:
 - **DNSSEC chain validation** — `--dnssec-mode validate` (default) performs
   full on-the-wire DS / DNSKEY / RRSIG chain validation from the root via
   [`dnsdata-go`](https://github.com/shigeya/dnsdata-go), distinguishing
-  SECURE / INSECURE / BOGUS. By default the resolver fans out to
-  Google / Cloudflare / Quad9 DoH endpoints (override with
-  `--dnssec-doh-provider`, or fall through to `--dns-server` when that is
-  set). `--dnssec-mode ad-only` preserves the legacy AD-bit + DS
-  observation from Phase 1.0–2.5.
+  SECURE / INSECURE / BOGUS. By default the resolver tries DoH endpoints
+  in the order **Cloudflare → Google → Quad9** (sequential failover;
+  override with `--dnssec-doh-provider`, or fall through to
+  `--dns-server` when that is set). `--dnssec-mode ad-only` preserves
+  the legacy AD-bit + DS observation from Phase 1.0–2.5.
+
+  See the [DoH provider selection](#doh-provider-selection) section
+  below for the rationale and tuning advice.
 
 Phase 2.5 adds:
 
