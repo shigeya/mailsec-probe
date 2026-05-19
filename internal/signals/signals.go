@@ -16,6 +16,11 @@ const (
 	StatusAbsent        Status = "absent"
 	StatusUnknown       Status = "unknown"
 	StatusMisconfigured Status = "misconfigured"
+	// StatusSkipped indicates the probe was intentionally not run
+	// (e.g. via a CLI flag such as --no-dkim). It is neither a
+	// successful observation nor a failure — measurement simply did
+	// not happen for this feature.
+	StatusSkipped Status = "skipped"
 )
 
 // Source describes where a Signal came from.

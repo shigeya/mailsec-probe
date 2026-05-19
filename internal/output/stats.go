@@ -43,6 +43,11 @@ func Compute(reports []signals.Report) Stats {
 	order := []string{} // preserve first-seen feature order
 	for _, r := range reports {
 		for _, f := range r.Features {
+			// Skipped features are intentionally not measured;
+			// excluding them from Total keeps percentages honest.
+			if f.Status == signals.StatusSkipped {
+				continue
+			}
 			c, ok := counts[f.Name]
 			if !ok {
 				c = &FeatureStat{Feature: f.Name}

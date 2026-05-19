@@ -73,6 +73,7 @@ type rootOpts struct {
 	dkimSelectors      []string
 	dkimSelFile        string
 	noSPFInference     bool
+	noDKIM             bool
 	noRUACheck         bool
 	active             bool
 	smtpPort           int
@@ -121,6 +122,7 @@ func newRoot() *cobra.Command {
 	pf.StringSliceVar(&opts.dkimSelectors, "dkim-selector", nil, "additional DKIM selector to probe (repeatable)")
 	pf.StringVar(&opts.dkimSelFile, "dkim-selectors-file", "", "override the embedded DKIM selector list with this YAML file")
 	pf.BoolVar(&opts.noSPFInference, "no-spf-inference", false, "disable SPF-driven DKIM selector inference")
+	pf.BoolVar(&opts.noDKIM, "no-dkim", false, "skip DKIM selector scanning entirely (feature appears as SKIPPED in output)")
 	pf.BoolVar(&opts.noRUACheck, "no-rua-check", false, "disable DMARC rua= HTTPS reachability HEAD checks")
 	pf.BoolVar(&opts.active, "active", false, "enable active SMTP probes (STARTTLS + DANE). Connects to each MX on TCP 25")
 	pf.IntVar(&opts.smtpPort, "smtp-port", opts.smtpPort, "SMTP port for --active probes")
@@ -244,33 +246,41 @@ func anyDomainFailed(reports []signals.Report) bool {
 }
 
 func buildProbes(dnsCli dnsclient.Client, opts *rootOpts) ([]classifier.Probe, error) {
-	var dkimSelectorsYAML []byte
-	if opts.dkimSelFile != "" {
-		b, err := os.ReadFile(opts.dkimSelFile)
-		if err != nil {
-			return nil, fmt.Errorf("read DKIM selectors file: %w", err)
+	var dkimProbeProbe classifier.Probe
+	if opts.noDKIM {
+		// User opted out of DKIM scanning. Emit a stub probe that
+		// records the feature as skipped so the human / json / tsv
+		// output still shows a DKIM row but makes clear that no
+		// measurement was attempted. This is the primary path used
+		// to measure how much DKIM lookups contribute to overall
+		// per-domain latency.
+		dkimProbeProbe = skippedDKIMProbe{}
+	} else {
+		var dkimSelectorsYAML []byte
+		if opts.dkimSelFile != "" {
+			b, err := os.ReadFile(opts.dkimSelFile)
+			if err != nil {
+				return nil, fmt.Errorf("read DKIM selectors file: %w", err)
+			}
+			dkimSelectorsYAML = b
 		}
-		dkimSelectorsYAML = b
-	}
-
-	var dkimProbe *dkim.Probe
-	{
 		// Load (possibly overridden) base selectors, then append --dkim-selector.
 		baseSel, err := dkim.LoadSelectors(dkimSelectorsYAML)
 		if err != nil {
 			return nil, err
 		}
 		merged := append(append([]string{}, baseSel...), opts.dkimSelectors...)
-		dkimProbe, err = dkim.New(dnsCli, mergedAsExtras(merged), opts.includeRaw)
+		dp, err := dkim.New(dnsCli, mergedAsExtras(merged), opts.includeRaw)
 		if err != nil {
 			return nil, err
 		}
 		// dkim.New re-loaded the embedded set; rewrite Selectors with the
 		// user-controlled merged list so --dkim-selectors-file actually wins.
-		dkimProbe.Selectors = dedupe(merged)
+		dp.Selectors = dedupe(merged)
 		if opts.noSPFInference {
-			dkimProbe.EnableInference = false
+			dp.EnableInference = false
 		}
+		dkimProbeProbe = dp
 	}
 
 	dmarcProbe := dmarc.New(dnsCli, opts.includeRaw)
@@ -286,7 +296,7 @@ func buildProbes(dnsCli dnsclient.Client, opts *rootOpts) ([]classifier.Probe, e
 	probes := []classifier.Probe{
 		spf.New(dnsCli, opts.includeRaw),
 		dmarcProbe,
-		dkimProbe,
+		dkimProbeProbe,
 		mx.New(dnsCli),
 		mtasts.New(dnsCli, opts.includeRaw),
 		tlsrpt.New(dnsCli, opts.includeRaw),
@@ -362,6 +372,44 @@ func buildVerifier(opts *rootOpts) (*verifier.Verifier, error) {
 		vopts = append(vopts, verifier.WithCache(verifier.NewMemoryCache()))
 	}
 	return verifier.NewVerifier(vopts...)
+}
+
+// skippedDKIMProbe is the stub used when --no-dkim is set. It emits a
+// single Feature with Status=skipped so downstream formatters can show
+// "DKIM was not scanned" without special-casing the absence of a probe.
+// No DNS lookups are issued.
+type skippedDKIMProbe struct{}
+
+// skippedDKIMDetails carries a Summary() so the human formatter prints
+// a clear "scan disabled" note in the detail column.
+type skippedDKIMDetails struct {
+	Reason string `json:"reason"`
+}
+
+// Summary implements output.Summarizer.
+func (d skippedDKIMDetails) Summary() string {
+	if d.Reason != "" {
+		return d.Reason
+	}
+	return "scan disabled"
+}
+
+// Name implements classifier.Probe.
+func (skippedDKIMProbe) Name() string { return "dkim" }
+
+// Run implements classifier.Probe. It returns immediately with a
+// skipped Feature; no DNS work is performed.
+//
+// Reasons is left empty so the human formatter's "reason  |  summary"
+// concatenation does not double-print the same disabled-by-flag note.
+// The JSON consumer can still infer skip semantics from Status alone.
+func (skippedDKIMProbe) Run(_ context.Context, _ string) []signals.Feature {
+	return []signals.Feature{{
+		Name:       "dkim",
+		Status:     signals.StatusSkipped,
+		Confidence: 0,
+		Details:    skippedDKIMDetails{Reason: "DKIM scan disabled (--no-dkim)"},
+	}}
 }
 
 // mergedAsExtras is a tiny adapter: dkim.New treats its second arg as

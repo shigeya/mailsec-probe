@@ -77,6 +77,8 @@ func (c Colorizer) colorByStatus(s signals.Status, text string) string {
 		return ansiRed + ansiBold + text + ansiReset
 	case signals.StatusAbsent:
 		return ansiGray + text + ansiReset
+	case signals.StatusSkipped:
+		return ansiGray + text + ansiReset
 	}
 	return text
 }
