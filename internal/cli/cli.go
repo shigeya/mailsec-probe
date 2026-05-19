@@ -73,7 +73,7 @@ type rootOpts struct {
 	dkimSelectors      []string
 	dkimSelFile        string
 	noSPFInference     bool
-	noDKIM             bool
+	dkim               bool
 	noRUACheck         bool
 	active             bool
 	smtpPort           int
@@ -121,8 +121,8 @@ func newRoot() *cobra.Command {
 	pf.StringVar(&opts.dnsServer, "dns-server", "", "DNS server to query (host or host:port). Default: system resolver")
 	pf.StringSliceVar(&opts.dkimSelectors, "dkim-selector", nil, "additional DKIM selector to probe (repeatable)")
 	pf.StringVar(&opts.dkimSelFile, "dkim-selectors-file", "", "override the embedded DKIM selector list with this YAML file")
-	pf.BoolVar(&opts.noSPFInference, "no-spf-inference", false, "disable SPF-driven DKIM selector inference")
-	pf.BoolVar(&opts.noDKIM, "no-dkim", false, "skip DKIM selector scanning entirely (feature appears as SKIPPED in output)")
+	pf.BoolVar(&opts.noSPFInference, "no-spf-inference", false, "disable SPF-driven DKIM selector inference (only relevant when --dkim is set)")
+	pf.BoolVar(&opts.dkim, "dkim", false, "enable DKIM selector scanning (off by default; scanning ~40 selectors per domain dominates per-domain latency when no selector hits). Without this flag DKIM appears as SKIPPED in the output")
 	pf.BoolVar(&opts.noRUACheck, "no-rua-check", false, "disable DMARC rua= HTTPS reachability HEAD checks")
 	pf.BoolVar(&opts.active, "active", false, "enable active SMTP probes (STARTTLS + DANE). Connects to each MX on TCP 25")
 	pf.IntVar(&opts.smtpPort, "smtp-port", opts.smtpPort, "SMTP port for --active probes")
@@ -247,13 +247,13 @@ func anyDomainFailed(reports []signals.Report) bool {
 
 func buildProbes(dnsCli dnsclient.Client, opts *rootOpts) ([]classifier.Probe, error) {
 	var dkimProbeProbe classifier.Probe
-	if opts.noDKIM {
-		// User opted out of DKIM scanning. Emit a stub probe that
-		// records the feature as skipped so the human / json / tsv
-		// output still shows a DKIM row but makes clear that no
-		// measurement was attempted. This is the primary path used
-		// to measure how much DKIM lookups contribute to overall
-		// per-domain latency.
+	if !opts.dkim {
+		// DKIM scanning is opt-in (--dkim). When off, emit a stub
+		// probe that records the feature as skipped so the human /
+		// json / tsv output still shows a DKIM row but makes clear
+		// that no measurement was attempted. Default-off because
+		// scanning ~40 selectors per domain dominates per-domain
+		// latency when no selector hits.
 		dkimProbeProbe = skippedDKIMProbe{}
 	} else {
 		var dkimSelectorsYAML []byte
@@ -408,7 +408,7 @@ func (skippedDKIMProbe) Run(_ context.Context, _ string) []signals.Feature {
 		Name:       "dkim",
 		Status:     signals.StatusSkipped,
 		Confidence: 0,
-		Details:    skippedDKIMDetails{Reason: "DKIM scan disabled (--no-dkim)"},
+		Details:    skippedDKIMDetails{Reason: "DKIM scan disabled (pass --dkim to enable)"},
 	}}
 }
 
