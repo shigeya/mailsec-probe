@@ -406,6 +406,6 @@ MIT. See [LICENSE](LICENSE).
 ## Acknowledgements
 
 The design, implementation, and documentation in this repository were
-produced in collaboration with
-[Claude Opus 4.7](https://www.anthropic.com/claude) running inside
-[Claude Code](https://www.anthropic.com/claude-code).
+produced in collaboration with [Claude](https://www.anthropic.com/claude)
+models (Claude Opus 4.6, 4.7, 4.8, 5 and 5.5, and Claude Fable 5) running
+inside [Claude Code](https://www.anthropic.com/claude-code).
