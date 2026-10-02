@@ -23,18 +23,16 @@ go test -tags integration ./...   # tests that hit real DNS / HTTPS
 
 ## Phase Scope
 
-Phase 2.5 is complete. Phase 3.0 is in planning.
+Phase 3.0 is complete. Phase 3.x candidates are listed in [DESIGN.md §17](DESIGN.md) and none is started.
 
 **Implemented**:
 - **Phase 1.0** — SPF / DMARC / DKIM (fixed selectors) / MX / MTA-STS / TLS-RPT / BIMI / DNSSEC (AD bit only), json/human output, golden tests
 - **Phase 1.5** — SPF→DKIM selector inference, MTA-STS↔MX consistency, DMARC rua HTTPS reachability
 - **Phase 2.0** — `--active`: SMTP STARTTLS + certificate observation + DANE/TLSA matching (mtatls probe)
 - **Phase 2.5** — `--input` batch mode, TSV output, `--stats` cross-domain aggregation
+- **Phase 3.0** — DNSSEC chain validation via `github.com/shigeya/dnsdata-go` (separate module, co-developed; `go.mod` pins the version). Distinguishes BOGUS from INSECURE. Default `--dnssec-mode validate`; `--dnssec-mode ad-only` preserves the legacy behavior. See [DESIGN.md §16](DESIGN.md#16-phase-30-plan--dnssec-validation-via-dnsdata-go) for details.
 
-**Planned**:
-- **Phase 3.0** — Introduce DNSSEC chain validation via `github.com/shigeya/dnsdata-go` (separate module, co-developed). Distinguishes BOGUS from INSECURE. `--dnssec-mode ad-only` preserves the legacy behavior. See [DESIGN.md §16](DESIGN.md#16-phase-30-plan--dnssec-validation-via-dnsdata-go) for details.
-
-**Out of scope (until Phase 3.0)** — BIMI VMC validation / strict TLSA Usage 0/2 (trust-anchor) verification / sending mail.
+**Out of scope (Phase 3.x candidates, see DESIGN.md §17)** — BIMI VMC validation / strict TLSA Usage 0/2 (trust-anchor) verification. Sending mail stays out of scope.
 When in doubt, prefer observational neutrality and track the gap with a TODO comment.
 
 ## Directory Layout

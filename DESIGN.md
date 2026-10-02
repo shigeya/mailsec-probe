@@ -293,7 +293,7 @@ example.jp
 }
 ```
 
-## 14. Development Phases (current: Phase 2.5 complete)
+## 14. Development Phases (current: Phase 3.0 complete)
 
 | Phase | Status | Scope |
 |-------|--------|-------|
@@ -301,7 +301,7 @@ example.jp
 | **1.5** | ✅ implemented | SPF → DKIM selector inference (`--no-spf-inference` to disable), DMARC `rua=` HTTPS HEAD reachability (`--no-rua-check`), consistency between MTA-STS policy `mx:` patterns and the actual MX |
 | **2.0** | ✅ implemented | `--active`: SMTP STARTTLS / certificate observation / PKIX verification / DANE/TLSA matching (Usage 3 = DANE-EE is strict; Usage 0/2 is observe-only) |
 | **2.5** | ✅ implemented | `--input <file>` batch mode (`-` for stdin), `--output tsv`, `--stats` cross-domain aggregation, ANSI color output (`--color auto\|always\|never`) |
-| **3.0** | ✅ implemented | DNSSEC chain validation via `github.com/shigeya/dnsdata-go` v0.2.2. Default is `--dnssec-mode validate` (chain validation); the Phase 1.0 AD-bit-only mode survives as `--dnssec-mode ad-only`. See §16 |
+| **3.0** | ✅ implemented | DNSSEC chain validation via `github.com/shigeya/dnsdata-go` (`go.mod` pins the version; v0.6.0 at the time of writing). Default is `--dnssec-mode validate` (chain validation); the Phase 1.0 AD-bit-only mode survives as `--dnssec-mode ad-only`. See §16 |
 | **3.x** | candidates | See §17 below |
 
 ### Findings from Phase 1.5
