@@ -358,28 +358,31 @@ mailsec-probe (this repo)
 ### Validation Scope
 
 - **Chain-of-trust validation** starting from the root trust anchors (KSK-2017 + KSK-2024, embedded)
-- Result is one of four verdicts: `Secure | Insecure | Bogus | Indeterminate`
+- Result is one of six verdicts: `Secure | SecureNoData | SecureNXDomain | Insecure | Bogus | Indeterminate` (the original four plus two secure-negative states, dnsdata-go v0.2.0)
 - Insecure delegation (DS goes missing partway down the chain) is distinguished from BOGUS
 
 ### Requirements on dnsdata-go
 
 The API contract that mailsec-probe (= the consumer) asks `dnsdata-go` to
-honor. The same text is transcribed into the `dnsdata-go` DESIGN.md / issues
-so it can serve as the co-design north star.
+honor. This section is the source of truth; it is mirrored in
+`dnsdata-go` DESIGN.md §4 and, translated into TypeScript idiom, in
+`dnsdata-js` DESIGN.md §4, so it can serve as the co-design north star.
+When this section changes, all three DESIGN.md files must be updated
+together.
 
 #### MUST
 
 1. `Validate(ctx, qname, qtype) → (*Result, error)` is goroutine-safe
-2. `Result.Verdict` is an enum of `Secure | Insecure | Bogus | Indeterminate`
+2. `Result.Verdict` is an enum of `Secure | SecureNoData | SecureNXDomain | Insecure | Bogus | Indeterminate` (dnsdata-go v0.2.0 extended the original four-state set with two secure-negative states so callers can distinguish proven non-existence from "could not classify")
 3. `Result.Chain` contains each zone's DNSKEY/DS tags, algorithms, and RRSIG verification results
 4. `Result.InsecureAt` / `Result.BogusAt` returns the failure point as a string
 5. `Result.Evidence` carries the raw DS/DNSKEY/RRSIG data (forwarded into mailsec-probe Signals)
 6. `context.Context` propagates cancel / deadline
-7. The trust anchor source is caller-supplied (`WithTrustAnchors(io.Reader)` etc.)
-8. DoH providers can be passed as a slice (failover order: Google / Cloudflare / Quad9)
+7. The trust anchor source is caller-supplied (`WithTrustAnchors(*dnssec.RootAnchors)`, read from an `io.Reader` with `dnssec.ReadAnchors`); the built-in IANA root anchors are the default
+8. DoH providers can be passed as a slice (default failover order: Cloudflare / Google / Quad9 — see `resolver/doh` package doc for the rationale)
 9. There is a direct-to-authoritative-NS mode (to interoperate with mailsec-probe's `--dns-server`)
 10. `Result` can be marshaled directly with `encoding/json`
-11. `Verdict.String()` returns `"secure"` / `"insecure"` / `"bogus"` / `"indeterminate"`
+11. `Verdict.String()` returns one of `"secure"` / `"secure-nodata"` / `"secure-nxdomain"` / `"insecure"` / `"bogus"` / `"indeterminate"` (the four strings from before dnsdata-go v0.2.0 are unchanged so consumers that only know those still work; consumers wanting fine-grained negative results route on the dash-separated new ones)
 12. Errors are sentinels usable with `errors.Is` (`ErrNoDS`, `ErrSigExpired`, `ErrUnsupportedAlgo`, `ErrChainTimeout`, ...)
 
 #### SHOULD
@@ -400,7 +403,7 @@ so it can serve as the co-design north star.
 20. Call `os.Exit`
 21. Produce side effects from `init()` (acquiring a logger, etc.)
 22. Hold global state (multiple Verifiers must be independent)
-23. Write to the filesystem by default (only touch `~/.dnsdata-go/` etc. when explicitly told to)
+23. Write to the filesystem by default (only touch `~/.dnsdata/` — shared by dnsdata-go and dnsdata-js — when explicitly told to)
 24. Write to stdout / stderr (the caller routes output to their logger of choice)
 
 MUST NOT 20 (`os.Exit`) and 24 (stdout / stderr) are contracts of the
