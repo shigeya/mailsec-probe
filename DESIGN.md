@@ -403,6 +403,10 @@ so it can serve as the co-design north star.
 23. Write to the filesystem by default (only touch `~/.dnsdata-go/` etc. when explicitly told to)
 24. Write to stdout / stderr (the caller routes output to their logger of choice)
 
+MUST NOT 20 (`os.Exit`) and 24 (stdout / stderr) are contracts of the
+library packages; the commands under `cmd/` are programs, not library
+code, and are outside their scope.
+
 ### Sketch of the new dnssec probe API (mailsec-probe side)
 
 ```go
