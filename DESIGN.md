@@ -376,7 +376,7 @@ together.
 
 1. `Validate(ctx, qname, qtype) → (*Result, error)` is goroutine-safe
 2. `Result.Verdict` is an enum of `Secure | SecureNoData | SecureNXDomain | Insecure | Bogus | Indeterminate` (dnsdata-go v0.2.0 extended the original four-state set with two secure-negative states so callers can distinguish proven non-existence from "could not classify")
-3. `Result.Chain` contains each zone's DNSKEY/DS tags, algorithms, and RRSIG verification results
+3. `Result.Chain` contains each zone's DNSKEY/DS tags and algorithms, the key that authenticated its DNSKEY rrset (`SignedBy`), and one RRSIG verification result per signature examined (`Signatures`: covered name and type, key tag, algorithm, signer, validity window, and `verified` / `expired` / `not-yet-valid` / `unsupported-algorithm` / `no-matching-key` / `invalid`); a Bogus chain ends with the step of the zone that failed
 4. `Result.InsecureAt` / `Result.BogusAt` returns the failure point as a string
 4a. `Result.InsecureReason` / `Result.BogusReason` explain the failure point in a short human-readable string; `Result.NegativeReason` does the same for `SecureNoData` / `SecureNXDomain` (which NSEC / NSEC3 records proved it) (dnsdata-go v0.2.0)
 4b. `Result.Aliases` lists every CNAME / DNAME hop followed before the terminal name, each with the zone that signed it and its own verdict; the overall verdict is the worst of the hops (dnsdata-go v0.2.0)
@@ -389,12 +389,12 @@ together.
 9. There is a direct-to-authoritative-NS mode (to interoperate with mailsec-probe's `--dns-server`)
 10. `Result` can be marshaled directly with `encoding/json`
 11. `Verdict.String()` returns one of `"secure"` / `"secure-nodata"` / `"secure-nxdomain"` / `"insecure"` / `"bogus"` / `"indeterminate"` (the four strings from before dnsdata-go v0.2.0 are unchanged so consumers that only know those still work; consumers wanting fine-grained negative results route on the dash-separated new ones)
-12. Errors are sentinels usable with `errors.Is` (`ErrNoDS`, `ErrSigExpired`, `ErrUnsupportedAlgo`, `ErrChainTimeout`, ...)
+12. Errors are sentinels usable with `errors.Is`. `Validate` returns an error only when it cannot classify the query (`ErrConfig`, `ErrInvalidQName`, `ErrResolver`, `ErrChainTimeout`, `ErrVerifier`); a Bogus or Insecure verdict is a result, not an error. Such a result carries a machine-readable `Result.ReasonCode` (`no-ds`, `ds-mismatch`, `no-dnskey`, `trust-anchor-mismatch`, `sig-expired`, `sig-invalid`, `unsupported-algorithm`, ...), and `Result.Err()` returns an error wrapping the matching sentinel (`ErrNoDS`, `ErrDSMismatch`, `ErrNoDNSKEY`, `ErrTrustAnchorMismatch`, `ErrSigExpired`, `ErrSigInvalid`, `ErrUnsupportedAlgo`, ...; a Bogus result also wraps `ErrBogus`)
 
 #### SHOULD
 
 13. A pluggable cache layer (`WithCache(c Cache)`) so root/TLD DNSKEY can be reused across a batch run
-14. Streamable verification steps (`WithStepHandler(func(StepEvent))`) for verbose logging
+14. Streamable verification steps (`WithStepHandler(func(StepEvent))`) for verbose logging; events are delivered synchronously on the calling goroutine and never after `Validate` returns
 15. RR types accepted as `uint16` (compatible with miekg/dns)
 16. Memory efficiency acceptable when validating 100 domains in parallel
 
@@ -408,7 +408,7 @@ together.
 
 20. Call `os.Exit`
 21. Produce side effects from `init()` (acquiring a logger, etc.)
-22. Hold global state (multiple Verifiers must be independent)
+22. Hold global state (multiple Verifiers must be independent). Each Verifier has its own RR handler registry (`WithRegistry`; by default one holding the DNSSEC handlers), so constructing a Verifier does not change the package-wide default registry
 23. Write to the filesystem by default (only touch `~/.dnsdata/` — shared by dnsdata-go and dnsdata-js — when explicitly told to)
 24. Write to stdout / stderr (the caller routes output to their logger of choice)
 
