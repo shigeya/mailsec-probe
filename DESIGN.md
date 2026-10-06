@@ -301,7 +301,7 @@ example.jp
 | **1.5** | ✅ implemented | SPF → DKIM selector inference (`--no-spf-inference` to disable), DMARC `rua=` HTTPS HEAD reachability (`--no-rua-check`), consistency between MTA-STS policy `mx:` patterns and the actual MX |
 | **2.0** | ✅ implemented | `--active`: SMTP STARTTLS / certificate observation / PKIX verification / DANE/TLSA matching (Usage 3 = DANE-EE is strict; Usage 0/2 is observe-only) |
 | **2.5** | ✅ implemented | `--input <file>` batch mode (`-` for stdin), `--output tsv`, `--stats` cross-domain aggregation, ANSI color output (`--color auto\|always\|never`) |
-| **3.0** | ✅ implemented | DNSSEC chain validation via `github.com/shigeya/dnsdata-go` (`go.mod` pins the version; v0.6.0 at the time of writing). Default is `--dnssec-mode validate` (chain validation); the Phase 1.0 AD-bit-only mode survives as `--dnssec-mode ad-only`. See §16 |
+| **3.0** | ✅ implemented | DNSSEC chain validation via `github.com/shigeya/dnsdata-go` (`go.mod` pins the version; v0.9.0 at the time of writing). Default is `--dnssec-mode validate` (chain validation); the Phase 1.0 AD-bit-only mode survives as `--dnssec-mode ad-only`. See §16 |
 | **3.x** | candidates | See §17 below |
 
 ### Findings from Phase 1.5
@@ -344,9 +344,11 @@ In Phase 3.0 we introduce DNSSEC chain validation by **delegating to `dnsdata-go
 ### Dependency
 
 `github.com/shigeya/dnsdata-go` — a Go DNS / DNSSEC library developed as a
-separate module. A pure port of the TypeScript `dnsdata-js` (originating
-from wide-cpp-lib) to Go. Co-developed with mailsec-probe (both repos owned
-by the same author).
+separate module. It began as a port of the TypeScript `dnsdata-js`
+(originating from wide-cpp-lib) and is now its sibling implementation:
+the two are developed side by side as equals, neither upstream of the
+other. Co-developed with mailsec-probe (all repos owned by the same
+author).
 
 ```
 mailsec-probe (this repo)
@@ -412,6 +414,15 @@ code, and are outside their scope.
 
 ### Sketch of the new dnssec probe API (mailsec-probe side)
 
+> This sketch is the Phase 3.0 plan as written before implementation and
+> is kept as a record. The shipped `internal/probe/dnssec/dnssec.go`
+> differs: it switches on six verdicts (`verifier.VerdictSecure`,
+> `VerdictSecureNoData` and `VerdictSecureNXDomain` → Present,
+> `VerdictInsecure` → Absent, `VerdictBogus` → Misconfigured, anything
+> else → Unknown), queries `types.TypeTXT` from dnsdata-go's own `types`
+> package rather than miekg/dns, and puts `Verdict.String()` in
+> `Details.Verdict`.
+
 ```go
 // internal/probe/dnssec/dnssec.go (planned after Phase 3.0)
 package dnssec
@@ -462,6 +473,13 @@ Beyond DNSSEC BOGUS, it will also be reusable for MTA-STS policy/MX
 mismatches, DKIM key-length deficiencies, and similar cases in the future.
 
 ### Impact on the CLI
+
+> Planned as below; `mailsec-probe --help` describes what shipped.
+> The provider flag shipped as `--dnssec-doh-provider <URL>`, repeatable,
+> defaulting to Cloudflare → Google → Quad9 (MUST 8). `--dns-server`
+> takes either a DoH URL (DoH for probes and verifier alike, and
+> `--dnssec-doh-provider` is ignored) or a `host[:port]` (classic UDP/TCP
+> for the probes, direct authoritative queries for the verifier).
 
 - New flag `--dnssec-mode {ad-only,validate}` (default `validate`)
   - `ad-only` preserves Phase 1.0 behavior (AD bit + DS only)
