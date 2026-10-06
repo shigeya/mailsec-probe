@@ -378,6 +378,10 @@ together.
 2. `Result.Verdict` is an enum of `Secure | SecureNoData | SecureNXDomain | Insecure | Bogus | Indeterminate` (dnsdata-go v0.2.0 extended the original four-state set with two secure-negative states so callers can distinguish proven non-existence from "could not classify")
 3. `Result.Chain` contains each zone's DNSKEY/DS tags, algorithms, and RRSIG verification results
 4. `Result.InsecureAt` / `Result.BogusAt` returns the failure point as a string
+4a. `Result.InsecureReason` / `Result.BogusReason` explain the failure point in a short human-readable string; `Result.NegativeReason` does the same for `SecureNoData` / `SecureNXDomain` (which NSEC / NSEC3 records proved it) (dnsdata-go v0.2.0)
+4b. `Result.Aliases` lists every CNAME / DNAME hop followed before the terminal name, each with the zone that signed it and its own verdict; the overall verdict is the worst of the hops (dnsdata-go v0.2.0)
+4c. `Result.Wildcard` is set when the positive answer was synthesised from a wildcard, with the wildcard owner, closest encloser and next closer whose non-existence was proven; the verdict stays `Secure` (dnsdata-go v0.2.0)
+4d. `Result.Answer` carries the validated RRset and the RRSIGs over it that verified, only when the verdict is `Secure` (after alias hops the terminal RRset; for a wildcard the synthesised one), so the caller acts on exactly what was validated (dnsdata-go v0.7.0)
 5. `Result.Evidence` carries the raw DS/DNSKEY/RRSIG data (forwarded into mailsec-probe Signals)
 6. `context.Context` propagates cancel / deadline
 7. The trust anchor source is caller-supplied (`WithTrustAnchors(*dnssec.RootAnchors)`, read from an `io.Reader` with `dnssec.ReadAnchors`); the built-in IANA root anchors are the default
